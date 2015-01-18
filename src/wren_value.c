@@ -116,13 +116,19 @@ void wrenBindMethod(WrenVM* vm, ObjClass* classObj, int symbol, Method method)
   classObj->methods.data[symbol] = method;
 }
 
-ObjClosure* wrenNewClosure(WrenVM* vm, ObjFn* fn)
+ObjFn* wrenNewClosure(WrenVM* vm, ObjFn* fn)
 {
-  ObjClosure* closure = ALLOCATE_FLEX(vm, ObjClosure,
-                                      sizeof(Upvalue*) * fn->numUpvalues);
-  initObj(vm, &closure->obj, OBJ_CLOSURE, vm->fnClass);
+  ObjFn* closure = ALLOCATE_FLEX(vm, ObjFn,
+                                 sizeof(Upvalue*) * fn->numUpvalues);
+  initObj(vm, &closure->obj, OBJ_FN, vm->fnClass);
 
-  closure->fn = fn;
+  closure->bytecode = fn->bytecode;
+  closure->constants = fn->constants;
+  closure->numUpvalues = fn->numUpvalues;
+  closure->numConstants = fn->numConstants;
+  closure->numParams = fn->numParams;
+  closure->debug = fn->debug;
+  closure->prototype = fn;
 
   // Clear the upvalue array. We need to do this in case a GC is triggered
   // after the closure is created but before the upvalue array is populated.
@@ -131,7 +137,7 @@ ObjClosure* wrenNewClosure(WrenVM* vm, ObjFn* fn)
   return closure;
 }
 
-ObjFiber* wrenNewFiber(WrenVM* vm, Obj* fn)
+ObjFiber* wrenNewFiber(WrenVM* vm, ObjFn* fn)
 {
   ObjFiber* fiber = ALLOCATE(vm, ObjFiber);
   initObj(vm, &fiber->obj, OBJ_FIBER, vm->fiberClass);
@@ -147,14 +153,7 @@ ObjFiber* wrenNewFiber(WrenVM* vm, Obj* fn)
   CallFrame* frame = &fiber->frames[0];
   frame->fn = fn;
   frame->stackStart = fiber->stack;
-  if (fn->type == OBJ_FN)
-  {
-    frame->ip = ((ObjFn*)fn)->bytecode;
-  }
-  else
-  {
-    frame->ip = ((ObjClosure*)fn)->fn->bytecode;
-  }
+  frame->ip = fn->bytecode;
 
   return fiber;
 }
@@ -188,6 +187,7 @@ ObjFn* wrenNewFunction(WrenVM* vm, Value* constants, int numConstants,
   debug->name[debugNameLength] = '\0';
 
   debug->sourceLines = sourceLines;
+  debug->bytecodeLength = bytecodeLength;
 
   ObjFn* fn = ALLOCATE(vm, ObjFn);
   initObj(vm, &fn->obj, OBJ_FN, vm->fnClass);
@@ -201,7 +201,7 @@ ObjFn* wrenNewFunction(WrenVM* vm, Value* constants, int numConstants,
   fn->numUpvalues = numUpvalues;
   fn->numConstants = numConstants;
   fn->numParams = numParams;
-  fn->bytecodeLength = bytecodeLength;
+  fn->prototype = NULL;
   fn->debug = debug;
 
   return fn;
@@ -393,6 +393,61 @@ static void markString(WrenVM* vm, ObjString* string)
   vm->bytesAllocated += sizeof(ObjString) + string->length + 1;
 }
 
+static void markUpvalue(WrenVM* vm, Upvalue* upvalue)
+{
+  // This can happen if a GC is triggered in the middle of initializing the
+  // closure.
+  if (upvalue == NULL) return;
+
+  if (setMarkedFlag(&upvalue->obj)) return;
+
+  // Mark the closed-over object (in case it is closed).
+  wrenMarkValue(vm, upvalue->closed);
+
+  // Keep track of how much memory is still in use.
+  vm->bytesAllocated += sizeof(Upvalue);
+}
+
+static void markFn(WrenVM* vm, ObjFn* fn)
+{
+  if (setMarkedFlag(&fn->obj)) return;
+
+  if (fn->prototype != NULL)
+  {
+    // Mark the function the closure is based on.
+    markFn(vm, fn->prototype);
+
+    // Mark the upvalues.
+    for (int i = 0; i < fn->numUpvalues; i++)
+    {
+      Upvalue* upvalue = fn->upvalues[i];
+      markUpvalue(vm, upvalue);
+    }
+
+    vm->bytesAllocated += sizeof(Upvalue*) * fn->numUpvalues;
+  }
+  else
+  {
+    // Mark the constants.
+    for (int i = 0; i < fn->numConstants; i++)
+    {
+      wrenMarkValue(vm, fn->constants[i]);
+    }
+
+    wrenMarkObj(vm, (Obj*)fn->debug->sourcePath);
+
+    // A non-closure function owns the debug info and constant table.
+    vm->bytesAllocated += sizeof(uint8_t) * fn->debug->bytecodeLength;
+    vm->bytesAllocated += sizeof(Value) * fn->numConstants;
+
+    // The debug line number buffer.
+    vm->bytesAllocated += sizeof(int) * fn->debug->bytecodeLength;
+    // TODO: What about the function name?
+  }
+
+  vm->bytesAllocated += sizeof(ObjFn);
+}
+
 static void markClass(WrenVM* vm, ObjClass* classObj)
 {
   if (setMarkedFlag(&classObj->obj)) return;
@@ -408,7 +463,7 @@ static void markClass(WrenVM* vm, ObjClass* classObj)
   {
     if (classObj->methods.data[i].type == METHOD_BLOCK)
     {
-      wrenMarkObj(vm, classObj->methods.data[i].fn.obj);
+      markFn(vm, classObj->methods.data[i].fn.obj);
     }
   }
 
@@ -417,29 +472,6 @@ static void markClass(WrenVM* vm, ObjClass* classObj)
   // Keep track of how much memory is still in use.
   vm->bytesAllocated += sizeof(ObjClass);
   vm->bytesAllocated += classObj->methods.capacity * sizeof(Method);
-}
-
-static void markFn(WrenVM* vm, ObjFn* fn)
-{
-  if (setMarkedFlag(&fn->obj)) return;
-
-  // Mark the constants.
-  for (int i = 0; i < fn->numConstants; i++)
-  {
-    wrenMarkValue(vm, fn->constants[i]);
-  }
-
-  wrenMarkObj(vm, (Obj*)fn->debug->sourcePath);
-
-  // Keep track of how much memory is still in use.
-  vm->bytesAllocated += sizeof(ObjFn);
-  vm->bytesAllocated += sizeof(uint8_t) * fn->bytecodeLength;
-  vm->bytesAllocated += sizeof(Value) * fn->numConstants;
-
-  // The debug line number buffer.
-  vm->bytesAllocated += sizeof(int) * fn->bytecodeLength;
-
-  // TODO: What about the function name?
 }
 
 static void markInstance(WrenVM* vm, ObjInstance* instance)
@@ -478,21 +510,6 @@ static void markList(WrenVM* vm, ObjList* list)
   }
 }
 
-static void markUpvalue(WrenVM* vm, Upvalue* upvalue)
-{
-  // This can happen if a GC is triggered in the middle of initializing the
-  // closure.
-  if (upvalue == NULL) return;
-
-  if (setMarkedFlag(&upvalue->obj)) return;
-
-  // Mark the closed-over object (in case it is closed).
-  wrenMarkValue(vm, upvalue->closed);
-
-  // Keep track of how much memory is still in use.
-  vm->bytesAllocated += sizeof(Upvalue);
-}
-
 static void markFiber(WrenVM* vm, ObjFiber* fiber)
 {
   if (setMarkedFlag(&fiber->obj)) return;
@@ -500,7 +517,7 @@ static void markFiber(WrenVM* vm, ObjFiber* fiber)
   // Stack functions.
   for (int i = 0; i < fiber->numFrames; i++)
   {
-    wrenMarkObj(vm, fiber->frames[i].fn);
+    markFn(vm, fiber->frames[i].fn);
   }
 
   // Stack variables.
@@ -527,25 +544,6 @@ static void markFiber(WrenVM* vm, ObjFiber* fiber)
   // TODO: Count size of error message buffer.
 }
 
-static void markClosure(WrenVM* vm, ObjClosure* closure)
-{
-  if (setMarkedFlag(&closure->obj)) return;
-
-  // Mark the function.
-  markFn(vm, closure->fn);
-
-  // Mark the upvalues.
-  for (int i = 0; i < closure->fn->numUpvalues; i++)
-  {
-    Upvalue* upvalue = closure->upvalues[i];
-    markUpvalue(vm, upvalue);
-  }
-
-  // Keep track of how much memory is still in use.
-  vm->bytesAllocated += sizeof(ObjClosure);
-  vm->bytesAllocated += sizeof(Upvalue*) * closure->fn->numUpvalues;
-}
-
 void wrenMarkObj(WrenVM* vm, Obj* obj)
 {
 #if WREN_DEBUG_TRACE_MEMORY
@@ -561,7 +559,6 @@ void wrenMarkObj(WrenVM* vm, Obj* obj)
   switch (obj->type)
   {
     case OBJ_CLASS:    markClass(   vm, (ObjClass*)   obj); break;
-    case OBJ_CLOSURE:  markClosure( vm, (ObjClosure*) obj); break;
     case OBJ_FIBER:    markFiber(   vm, (ObjFiber*)   obj); break;
     case OBJ_FN:       markFn(      vm, (ObjFn*)      obj); break;
     case OBJ_INSTANCE: markInstance(vm, (ObjInstance*)obj); break;
@@ -599,11 +596,17 @@ void wrenFreeObj(WrenVM* vm, Obj* obj)
     case OBJ_FN:
     {
       ObjFn* fn = (ObjFn*)obj;
-      wrenReallocate(vm, fn->constants, 0, 0);
-      wrenReallocate(vm, fn->bytecode, 0, 0);
-      wrenReallocate(vm, fn->debug->name, 0, 0);
-      wrenReallocate(vm, fn->debug->sourceLines, 0, 0);
-      wrenReallocate(vm, fn->debug, 0, 0);
+
+      // Only the base function owns this data. Closures derived from the fn
+      // just reference it.
+      if (fn->prototype == NULL)
+      {
+        wrenReallocate(vm, fn->constants, 0, 0);
+        wrenReallocate(vm, fn->bytecode, 0, 0);
+        wrenReallocate(vm, fn->debug->name, 0, 0);
+        wrenReallocate(vm, fn->debug->sourceLines, 0, 0);
+        wrenReallocate(vm, fn->debug, 0, 0);
+      }
       break;
     }
 
@@ -612,7 +615,6 @@ void wrenFreeObj(WrenVM* vm, Obj* obj)
       break;
 
     case OBJ_STRING:
-    case OBJ_CLOSURE:
     case OBJ_FIBER:
     case OBJ_INSTANCE:
     case OBJ_RANGE:
@@ -644,7 +646,6 @@ static void printObject(Obj* obj)
   switch (obj->type)
   {
     case OBJ_CLASS: printf("[class %p]", obj); break;
-    case OBJ_CLOSURE: printf("[closure %p]", obj); break;
     case OBJ_FIBER: printf("[fiber %p]", obj); break;
     case OBJ_FN: printf("[fn %p]", obj); break;
     case OBJ_INSTANCE: printf("[instance %p]", obj); break;

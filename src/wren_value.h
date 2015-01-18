@@ -47,7 +47,6 @@
 // Identifies which specific type a heap-allocated object is.
 typedef enum {
   OBJ_CLASS,
-  OBJ_CLOSURE,
   OBJ_FIBER,
   OBJ_FN,
   OBJ_INSTANCE,
@@ -146,6 +145,55 @@ typedef struct sUpvalue
   struct sUpvalue* next;
 } Upvalue;
 
+// TODO: See if it's actually a perf improvement to have this in a separate
+// struct instead of in ObjFn.
+// Stores debugging information for a function used for things like stack
+// traces.
+typedef struct
+{
+  // The name of the function. Heap allocated and owned by the ObjFn.
+  char* name;
+
+  // The name of the source file where this function was defined. An [ObjString]
+  // because this will be shared among all functions defined in the same file.
+  ObjString* sourcePath;
+
+  // An array of line numbers. There is one element in this array for each
+  // bytecode in the function's bytecode array. The value of that element is
+  // the line in the source code that generated that instruction.
+  int* sourceLines;
+
+  int bytecodeLength;
+} FnDebug;
+
+// A first-class function object. A raw ObjFn can be used and invoked directly
+// if it has no upvalues (i.e. [numUpvalues] is zero). If it does use upvalues,
+// it must be wrapped in an [ObjClosure] first. The compiler is responsible for
+// emitting code to ensure that that happens.
+typedef struct sObjFn
+{
+  Obj obj;
+  Value* constants;
+  uint8_t* bytecode;
+  int numUpvalues;
+  int numConstants;
+
+  // The number of parameters this function expects. Used to ensure that .call
+  // handles a mismatch between number of parameters and arguments. This will
+  // only be set for fns, and not ObjFns that represent methods or scripts.
+  int numParams;
+
+  // If this function is a closure, this is the raw function it's an instance
+  // of. Otherwise, this is `NULL`.
+  struct sObjFn* prototype;
+
+  FnDebug* debug;
+
+  // The upvalues this function has closed over. If the function is a prototype
+  // for closures, this is empty.
+  Upvalue* upvalues[];
+} ObjFn;
+
 typedef struct
 {
   // Pointer to the current (really next-to-be-executed) instruction in the
@@ -153,7 +201,7 @@ typedef struct
   uint8_t* ip;
 
   // The function or closure being executed.
-  Obj* fn;
+  ObjFn* fn;
 
   // Pointer to the first stack slot used by this call frame. This will contain
   // the receiver, followed by the function's parameters, then local variables
@@ -207,62 +255,6 @@ typedef enum
 
 typedef PrimitiveResult (*Primitive)(WrenVM* vm, ObjFiber* fiber, Value* args);
 
-// TODO: See if it's actually a perf improvement to have this in a separate
-// struct instead of in ObjFn.
-// Stores debugging information for a function used for things like stack
-// traces.
-typedef struct
-{
-  // The name of the function. Heap allocated and owned by the ObjFn.
-  char* name;
-
-  // The name of the source file where this function was defined. An [ObjString]
-  // because this will be shared among all functions defined in the same file.
-  ObjString* sourcePath;
-
-  // An array of line numbers. There is one element in this array for each
-  // bytecode in the function's bytecode array. The value of that element is
-  // the line in the source code that generated that instruction.
-  int* sourceLines;
-} FnDebug;
-
-// A first-class function object. A raw ObjFn can be used and invoked directly
-// if it has no upvalues (i.e. [numUpvalues] is zero). If it does use upvalues,
-// it must be wrapped in an [ObjClosure] first. The compiler is responsible for
-// emitting code to ensure that that happens.
-typedef struct
-{
-  Obj obj;
-  // TODO: Make one of these a flexible array? I tried each and it didn't seem
-  // to help perf, but it bears more investigation.
-  Value* constants;
-  uint8_t* bytecode;
-  int numUpvalues;
-  int numConstants;
-
-  // TODO: Move to FnDebug?
-  int bytecodeLength;
-
-  // The number of parameters this function expects. Used to ensure that .call
-  // handles a mismatch between number of parameters and arguments. This will
-  // only be set for fns, and not ObjFns that represent methods or scripts.
-  int numParams;
-  FnDebug* debug;
-} ObjFn;
-
-// An instance of a first-class function and the environment it has closed over.
-// Unlike [ObjFn], this has captured the upvalues that the function accesses.
-typedef struct
-{
-  Obj obj;
-
-  // The function that this closure is an instance of.
-  ObjFn* fn;
-
-  // The upvalues this function has closed over.
-  Upvalue* upvalues[];
-} ObjClosure;
-
 typedef enum
 {
   // A primitive method implemented in C in the VM. Unlike foreign methods,
@@ -289,9 +281,7 @@ typedef struct
   {
     Primitive primitive;
     WrenForeignMethodFn foreign;
-
-    // May be a [ObjFn] or [ObjClosure].
-    Obj* obj;
+    ObjFn* obj;
   } fn;
 } Method;
 
@@ -358,9 +348,6 @@ typedef struct
 // Value -> ObjClass*.
 #define AS_CLASS(value) ((ObjClass*)AS_OBJ(value))
 
-// Value -> ObjClosure*.
-#define AS_CLOSURE(value) ((ObjClosure*)AS_OBJ(value))
-
 // Value -> ObjFiber*.
 #define AS_FIBER(v) ((ObjFiber*)AS_OBJ(v))
 
@@ -399,9 +386,6 @@ typedef struct
 
 // Returns true if [value] is a class.
 #define IS_CLASS(value) (wrenIsObjType(value, OBJ_CLASS))
-
-// Returns true if [value] is a closure.
-#define IS_CLOSURE(value) (wrenIsObjType(value, OBJ_CLOSURE))
 
 // Returns true if [value] is a function object.
 #define IS_FN(value) (wrenIsObjType(value, OBJ_FN))
@@ -564,11 +548,11 @@ void wrenBindMethod(WrenVM* vm, ObjClass* classObj, int symbol, Method method);
 
 // Creates a new closure object that invokes [fn]. Allocates room for its
 // upvalues, but assumes outside code will populate it.
-ObjClosure* wrenNewClosure(WrenVM* vm, ObjFn* fn);
+ObjFn* wrenNewClosure(WrenVM* vm, ObjFn* fn);
 
 // Creates a new fiber object that will invoke [fn], which can be a function or
 // closure.
-ObjFiber* wrenNewFiber(WrenVM* vm, Obj* fn);
+ObjFiber* wrenNewFiber(WrenVM* vm, ObjFn* fn);
 
 // TODO: The argument list here is getting a bit gratuitous.
 // Creates a new function object with the given code and constants. The new

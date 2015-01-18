@@ -259,11 +259,8 @@ static void closeUpvalue(ObjFiber* fiber)
 }
 
 static void bindMethod(WrenVM* vm, int methodType, int symbol,
-                       ObjClass* classObj, Value methodValue)
+                       ObjClass* classObj, ObjFn* methodFn)
 {
-  ObjFn* methodFn = IS_FN(methodValue) ? AS_FN(methodValue)
-                                       : AS_CLOSURE(methodValue)->fn;
-
   // Methods are always bound against the class, and not the metaclass, even
   // for static methods, so that constructors (which are static) get bound like
   // instance methods.
@@ -271,7 +268,7 @@ static void bindMethod(WrenVM* vm, int methodType, int symbol,
 
   Method method;
   method.type = METHOD_BLOCK;
-  method.fn.obj = AS_OBJ(methodValue);
+  method.fn.obj = methodFn;
 
   if (methodType == CODE_METHOD_STATIC)
   {
@@ -352,21 +349,13 @@ static ObjString* methodNotFound(WrenVM* vm, ObjClass* classObj, int symbol)
 // Pushes [function] onto [fiber]'s callstack and invokes it. Expects [numArgs]
 // arguments (including the receiver) to be on the top of the stack already.
 // [function] can be an `ObjFn` or `ObjClosure`.
-static inline void callFunction(ObjFiber* fiber, Obj* function, int numArgs)
+static inline void callFunction(ObjFiber* fiber, ObjFn* function, int numArgs)
 {
   // TODO: Check for stack overflow.
   CallFrame* frame = &fiber->frames[fiber->numFrames++];
   frame->fn = function;
   frame->stackStart = fiber->stackTop - numArgs;
-
-  if (function->type == OBJ_FN)
-  {
-    frame->ip = ((ObjFn*)function)->bytecode;
-  }
-  else
-  {
-    frame->ip = ((ObjClosure*)function)->fn->bytecode;
-  }
+  frame->ip = function->bytecode;
 }
 
 // The main bytecode interpreter loop. This is where the magic happens. It is
@@ -402,14 +391,7 @@ static bool runInterpreter(WrenVM* vm)
       frame = &fiber->frames[fiber->numFrames - 1];    \
       stackStart = frame->stackStart;                  \
       ip = frame->ip;                                  \
-      if (frame->fn->type == OBJ_FN)                   \
-      {                                                \
-        fn = (ObjFn*)frame->fn;                        \
-      }                                                \
-      else                                             \
-      {                                                \
-        fn = ((ObjClosure*)frame->fn)->fn;             \
-      }
+      fn = frame->fn;
 
   // Terminates the current fiber with error string [error]. If another calling
   // fiber is willing to catch the error, transfers control to it, otherwise
@@ -617,7 +599,7 @@ static bool runInterpreter(WrenVM* vm)
 
             case PRIM_CALL:
               STORE_FRAME();
-              callFunction(fiber, AS_OBJ(args[0]), numArgs);
+              callFunction(fiber, AS_FN(args[0]), numArgs);
               LOAD_FRAME();
               break;
 
@@ -711,7 +693,7 @@ static bool runInterpreter(WrenVM* vm)
 
             case PRIM_CALL:
               STORE_FRAME();
-              callFunction(fiber, AS_OBJ(args[0]), numArgs);
+              callFunction(fiber, AS_FN(args[0]), numArgs);
               LOAD_FRAME();
               break;
 
@@ -743,14 +725,14 @@ static bool runInterpreter(WrenVM* vm)
 
     CASE_CODE(LOAD_UPVALUE):
     {
-      Upvalue** upvalues = ((ObjClosure*)frame->fn)->upvalues;
+      Upvalue** upvalues = frame->fn->upvalues;
       PUSH(*upvalues[READ_BYTE()]->value);
       DISPATCH();
     }
 
     CASE_CODE(STORE_UPVALUE):
     {
-      Upvalue** upvalues = ((ObjClosure*)frame->fn)->upvalues;
+      Upvalue** upvalues = frame->fn->upvalues;
       *upvalues[READ_BYTE()]->value = PEEK();
       DISPATCH();
     }
@@ -953,7 +935,7 @@ static bool runInterpreter(WrenVM* vm)
 
       // Create the closure and push it on the stack before creating upvalues
       // so that it doesn't get collected.
-      ObjClosure* closure = wrenNewClosure(vm, prototype);
+      ObjFn* closure = wrenNewClosure(vm, prototype);
       PUSH(OBJ_VAL(closure));
 
       // Capture upvalues.
@@ -970,7 +952,7 @@ static bool runInterpreter(WrenVM* vm)
         else
         {
           // Use the same upvalue as the current call frame.
-          closure->upvalues[i] = ((ObjClosure*)frame->fn)->upvalues[index];
+          closure->upvalues[i] = frame->fn->upvalues[index];
         }
       }
 
@@ -1025,7 +1007,7 @@ static bool runInterpreter(WrenVM* vm)
       int symbol = READ_SHORT();
       ObjClass* classObj = AS_CLASS(PEEK());
       Value method = PEEK2();
-      bindMethod(vm, type, symbol, classObj, method);
+      bindMethod(vm, type, symbol, classObj, AS_FN(method));
       DROP();
       DROP();
       DISPATCH();
@@ -1051,7 +1033,7 @@ WrenInterpretResult wrenInterpret(WrenVM* vm, const char* sourcePath,
   if (fn == NULL) return WREN_RESULT_COMPILE_ERROR;
 
   WREN_PIN(vm, fn);
-  vm->fiber = wrenNewFiber(vm, (Obj*)fn);
+  vm->fiber = wrenNewFiber(vm, fn);
   WREN_UNPIN(vm);
 
   if (runInterpreter(vm))

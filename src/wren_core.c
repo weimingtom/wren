@@ -129,7 +129,7 @@ static const char* libSource =
 // it is. If not, reports an error and returns false.
 static bool validateFn(WrenVM* vm, Value* args, int index, const char* argName)
 {
-  if (IS_FN(args[index]) || IS_CLOSURE(args[index])) return true;
+  if (IS_FN(args[index])) return true;
 
   args[0] = OBJ_VAL(wrenStringConcat(vm, argName, " must be a function."));
   return false;
@@ -248,7 +248,7 @@ DEF_NATIVE(fiber_new)
 {
   if (!validateFn(vm, args, 1, "Argument")) return PRIM_ERROR;
 
-  ObjFiber* newFiber = wrenNewFiber(vm, AS_OBJ(args[1]));
+  ObjFiber* newFiber = wrenNewFiber(vm, AS_FN(args[1]));
 
   // The compiler expects the first slot of a function to hold the receiver.
   // Since a fiber's stack is invoked directly, it doesn't have one, so put it
@@ -433,15 +433,7 @@ DEF_NATIVE(fiber_yield1)
 
 static PrimitiveResult callFunction(WrenVM* vm, Value* args, int numArgs)
 {
-  ObjFn* fn;
-  if (IS_CLOSURE(args[0]))
-  {
-    fn = AS_CLOSURE(args[0])->fn;
-  }
-  else
-  {
-    fn = AS_FN(args[0]);
-  }
+  ObjFn* fn = AS_FN(args[0]);
 
   if (numArgs < fn->numParams) RETURN_ERROR("Function expects more arguments.");
 
