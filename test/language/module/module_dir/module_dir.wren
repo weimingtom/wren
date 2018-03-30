@@ -1,3 +1,3 @@
-import "./something/module" for Index
+use "something/module" for Index
 
 System.print(Index) // expect: index

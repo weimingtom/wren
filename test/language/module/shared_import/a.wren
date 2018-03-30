@@ -1,5 +1,5 @@
 // nontest
 System.print("a")
-import "./shared" for Shared
+use "shared" for Shared
 var A = "a %(Shared)"
 System.print("a done")

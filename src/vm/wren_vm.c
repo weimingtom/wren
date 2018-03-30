@@ -695,7 +695,7 @@ void wrenFinalizeForeign(WrenVM* vm, ObjForeign* foreign)
 }
 
 // Let the host resolve an imported module name if it wants to.
-static Value resolveModule(WrenVM* vm, Value name)
+static Value resolveModule(WrenVM* vm, Value name, bool isUse)
 {
   // If the host doesn't care to resolve, leave the name alone.
   if (vm->config.resolveModuleFn == NULL) return name;
@@ -705,7 +705,7 @@ static Value resolveModule(WrenVM* vm, Value name)
   ObjString* importer = fn->module->name;
   
   const char* resolved = vm->config.resolveModuleFn(vm, importer->value,
-                                                    AS_CSTRING(name));
+                                                    AS_CSTRING(name), isUse);
   if (resolved == NULL)
   {
     vm->fiber->error = wrenStringFormat(vm,
@@ -723,9 +723,9 @@ static Value resolveModule(WrenVM* vm, Value name)
   return name;
 }
 
-Value wrenImportModule(WrenVM* vm, Value name)
+static Value importModule(WrenVM* vm, Value name, bool isUse)
 {
-  name = resolveModule(vm, name);
+  name = resolveModule(vm, name, isUse);
   
   // If the module is already loaded, we don't need to do anything.
   Value existing = wrenMapGet(vm->modules, name);
@@ -1305,10 +1305,12 @@ static WrenInterpretResult runInterpreter(WrenVM* vm, register ObjFiber* fiber)
     }
     
     CASE_CODE(IMPORT_MODULE):
+    CASE_CODE(USE_MODULE):
     {
+      bool isUse = instruction == CODE_USE_MODULE;
       Value name = fn->constants.data[READ_SHORT()];
 
-      Value result = wrenImportModule(vm, name);
+      Value result = importModule(vm, name, isUse);
       if (!IS_NULL(fiber->error)) RUNTIME_ERROR();
 
       // Make a slot on the stack for the module's closure to place the return

@@ -1,4 +1,4 @@
-import "./get_variable_module"
+use "get_variable_module"
 
 class GetVariable {
   foreign static beforeDefined()

@@ -72,7 +72,7 @@ static void noResolver(WrenVM* vm)
 }
 
 static const char* resolveToNull(WrenVM* vm, const char* importer,
-                                 const char* name)
+                                 const char* name, bool isUse)
 {
   return NULL;
 }
@@ -87,7 +87,7 @@ static void returnsNull(WrenVM* vm)
 }
 
 static const char* resolveChange(WrenVM* vm, const char* importer,
-                                 const char* name)
+                                 const char* name, bool isUse)
 {
   // Concatenate importer and name.
   size_t length = strlen(importer) + 1 + strlen(name) + 1;

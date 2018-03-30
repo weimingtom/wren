@@ -72,14 +72,10 @@ static char* readFile(const char* path)
 // * Otherwise, it is a "package" import. This isn't implemented yet.
 //
 static const char* resolveModule(WrenVM* vm, const char* importer,
-                                 const char* name)
+                                 const char* name, bool isUse)
 {
-  size_t nameLength = strlen(name);
-  
   // See if it's a relative import.
-  if (nameLength > 2 &&
-      ((name[0] == '.' && name[1] == '/') ||
-       (name[0] == '.' && name[1] == '.' && name[2] == '/')))
+  if (isUse)
   {
     // Get the directory containing the importing module.
     Path* relative = pathNew(importer);

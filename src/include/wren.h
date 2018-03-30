@@ -63,7 +63,7 @@ typedef void (*WrenFinalizerFn)(void* data);
 // that contains the import. Typically, this is used to implement relative
 // imports.
 typedef const char* (*WrenResolveModuleFn)(WrenVM* vm,
-    const char* importer, const char* name);
+    const char* importer, const char* name, bool isUse);
 
 // Loads and returns the source code for the module [name].
 typedef char* (*WrenLoadModuleFn)(WrenVM* vm, const char* name);
@@ -156,6 +156,7 @@ typedef struct
   // Wren will take ownership of the string you return and free it for you, so
   // it should be allocated using the same allocation function you provide
   // above.
+  // TODO: Doc "isUse".
   WrenResolveModuleFn resolveModuleFn;
 
   // The callback Wren uses to load a module.

@@ -1,5 +1,5 @@
-import "./a" for A
-import "./b" for B
+use "a" for A
+use "b" for B
 
 // Shared module should only run once:
 // expect: a

@@ -103,6 +103,7 @@ typedef enum
   TOKEN_SUPER,
   TOKEN_THIS,
   TOKEN_TRUE,
+  TOKEN_USE,
   TOKEN_VAR,
   TOKEN_WHILE,
 
@@ -580,6 +581,7 @@ static Keyword keywords[] =
   {"super",     5, TOKEN_SUPER},
   {"this",      4, TOKEN_THIS},
   {"true",      4, TOKEN_TRUE},
+  {"use",       3, TOKEN_USE},
   {"var",       3, TOKEN_VAR},
   {"while",     5, TOKEN_WHILE},
   {NULL,        0, TOKEN_EOF} // Sentinel to mark the end of the array.
@@ -2632,6 +2634,7 @@ GrammarRule rules[] =
   /* TOKEN_SUPER         */ PREFIX(super_),
   /* TOKEN_THIS          */ PREFIX(this_),
   /* TOKEN_TRUE          */ PREFIX(boolean),
+  /* TOKEN_USE           */ UNUSED,
   /* TOKEN_VAR           */ UNUSED,
   /* TOKEN_WHILE         */ UNUSED,
   /* TOKEN_FIELD         */ PREFIX(field),
@@ -2728,6 +2731,7 @@ static int getNumArguments(const uint8_t* bytecode, const Value* constants,
     case CODE_STORE_FIELD:
     case CODE_CLASS:
     case CODE_IMPORT_MODULE:
+    case CODE_USE_MODULE:
       return 1;
 
     case CODE_CONSTANT:
@@ -3327,12 +3331,15 @@ static void classDefinition(Compiler* compiler, bool isForeign)
 // * Compile the code to store that value in the variable in this scope.
 static void import(Compiler* compiler)
 {
+  bool isUse = compiler->parser->previous.type == TOKEN_USE;
+  
   ignoreNewlines(compiler);
-  consume(compiler, TOKEN_STRING, "Expect a string after 'import'.");
+  consume(compiler, TOKEN_STRING, "Expect a string after 'import' or 'use'.");
   int moduleConstant = addConstant(compiler, compiler->parser->previous.value);
 
   // Load the module.
-  emitShortArg(compiler, CODE_IMPORT_MODULE, moduleConstant);
+  emitShortArg(compiler, isUse ? CODE_USE_MODULE : CODE_IMPORT_MODULE,
+               moduleConstant);
 
   // Discard the unused result value from calling the module body's closure.
   emitOp(compiler, CODE_POP);
@@ -3399,7 +3406,7 @@ void definition(Compiler* compiler)
     consume(compiler, TOKEN_CLASS, "Expect 'class' after 'foreign'.");
     classDefinition(compiler, true);
   }
-  else if (match(compiler, TOKEN_IMPORT))
+  else if (match(compiler, TOKEN_IMPORT) || match(compiler, TOKEN_USE))
   {
     import(compiler);
   }

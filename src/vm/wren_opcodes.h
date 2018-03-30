@@ -195,13 +195,14 @@ OPCODE(METHOD_STATIC, -2)
 // most recently imported one.
 OPCODE(END_MODULE, 1)
 
-// Import a module whose name is the string stored at [arg] in the constant
-// table.
+// Import or use a module whose name is the string stored at [arg] in the
+// constant table.
 //
 // Pushes null onto the stack so that the fiber for the imported module can
 // replace that with a dummy value when it returns. (Fibers always return a
 // value when resuming a caller.)
 OPCODE(IMPORT_MODULE, 1)
+OPCODE(USE_MODULE, 1)
 
 // Import a variable from the most recently imported module. The name of the
 // variable to import is at [arg] in the constant table. Pushes the loaded

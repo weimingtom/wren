@@ -1,2 +1,2 @@
 var Collides
-import "./module" for Collides // expect error
+use "module" for Collides // expect error

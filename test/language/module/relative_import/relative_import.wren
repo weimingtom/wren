@@ -1,5 +1,5 @@
-import "./sub/module"
-import "./sub/././///dir/module"
+use "sub/module"
+use "sub/././///dir/module"
 // expect: sub/module
 // expect: sub/module_2
 // expect: sub/dir/module

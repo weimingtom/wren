@@ -1,4 +1,4 @@
-import "./module" for Module, Other
+use "module" for Module, Other
 
 System.print(Module) // expect: before
 

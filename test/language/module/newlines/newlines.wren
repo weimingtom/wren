@@ -1,9 +1,9 @@
-import
+use
 
 
-"./module"
+"module"
 
-import "./module" for
+use "module" for
 
 A,
 

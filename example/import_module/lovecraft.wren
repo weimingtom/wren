@@ -1,4 +1,4 @@
-import "./cthulu" for Cthulu
+use "cthulu" for Cthulu
 
 class Lovecraft {
   construct new() {}
