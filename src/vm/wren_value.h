@@ -1,7 +1,13 @@
 #ifndef wren_value_h
 #define wren_value_h
 
+#if _MSC_VER > 1600
 #include <stdbool.h>
+#else
+#define bool int
+#define true 1
+#define false 0
+#endif
 #include <string.h>
 
 #include "wren_common.h"
@@ -635,10 +641,11 @@ ObjFiber* wrenNewFiber(WrenVM* vm, ObjClosure* closure);
 static inline void wrenAppendCallFrame(WrenVM* vm, ObjFiber* fiber,
                                        ObjClosure* closure, Value* stackStart)
 {
+	CallFrame* frame;
   // The caller should have ensured we already have enough capacity.
   ASSERT(fiber->frameCapacity > fiber->numFrames, "No memory for call frame.");
   
-  CallFrame* frame = &fiber->frames[fiber->numFrames++];
+  frame = &fiber->frames[fiber->numFrames++];
   frame->stackStart = stackStart;
   frame->closure = closure;
   frame->ip = closure->fn->code.data;

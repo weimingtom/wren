@@ -3,7 +3,13 @@
 
 #include <stdarg.h>
 #include <stdlib.h>
+#if _MSC_VER > 1600
 #include <stdbool.h>
+#else
+#define bool int
+#define true 1
+#define false 0
+#endif
 
 // The Wren semantic version number components.
 #define WREN_VERSION_MAJOR 0

@@ -1,5 +1,15 @@
 #include <errno.h>
+#if _MSC_VER > 1600
 #include <stdbool.h>
+#else
+#define bool int
+#define true 1
+#define false 0
+#endif
+#if defined(_MSC_VER)
+#pragma warning(disable: 4244)
+#define strtoll _strtoi64
+#endif
 #include <stdio.h>
 #include <string.h>
 
@@ -391,6 +401,9 @@ static const int stackEffects[] = {
 static void printError(Parser* parser, int line, const char* label,
                        const char* format, va_list args)
 {
+  char message[ERROR_MESSAGE_SIZE];
+  int length;
+
   parser->hasError = true;
   if (!parser->printErrors) return;
   
@@ -398,8 +411,7 @@ static void printError(Parser* parser, int line, const char* label,
   if (parser->vm->config.errorFn == NULL) return;
   
   // Format the label and message.
-  char message[ERROR_MESSAGE_SIZE];
-  int length = sprintf(message, "%s: ", label);
+  length = sprintf(message, "%s: ", label);
   length += vsprintf(message + length, format, args);
   ASSERT(length < ERROR_MESSAGE_SIZE, "Error should not exceed buffer.");
   
@@ -426,13 +438,13 @@ static void lexError(Parser* parser, const char* format, ...)
 // one pass as possible instead of just bailing at the first one.
 static void error(Compiler* compiler, const char* format, ...)
 {
+	  va_list args;
   Token* token = &compiler->parser->previous;
 
   // If the parse error was caused by an error token, the lexer has already
   // reported it.
   if (token->type == TOKEN_ERROR) return;
   
-  va_list args;
   va_start(args, format);
   if (token->type == TOKEN_LINE)
   {
@@ -776,14 +788,17 @@ static void readNumber(Parser* parser)
 // Finishes lexing an identifier. Handles reserved words.
 static void readName(Parser* parser, TokenType type)
 {
+	size_t length;
+	int i;
+
   while (isName(peekChar(parser)) || isDigit(peekChar(parser)))
   {
     nextChar(parser);
   }
 
   // Update the type if it's a keyword.
-  size_t length = parser->currentChar - parser->tokenStart;
-  for (int i = 0; keywords[i].identifier != NULL; i++)
+  length = parser->currentChar - parser->tokenStart;
+  for (i = 0; keywords[i].identifier != NULL; i++)
   {
     if (length == keywords[i].length &&
         memcmp(parser->tokenStart, keywords[i].identifier, length) == 0)
@@ -799,8 +814,10 @@ static void readName(Parser* parser, TokenType type)
 // Reads [digits] hex digits in a string literal and returns their number value.
 static int readHexEscape(Parser* parser, int digits, const char* description)
 {
+	int i;
+	int digit;
   int value = 0;
-  for (int i = 0; i < digits; i++)
+  for (i = 0; i < digits; i++)
   {
     if (peekChar(parser) == '"' || peekChar(parser) == '\0')
     {
@@ -812,7 +829,7 @@ static int readHexEscape(Parser* parser, int digits, const char* description)
       break;
     }
 
-    int digit = readHexDigit(parser);
+    digit = readHexDigit(parser);
     if (digit == -1)
     {
       lexError(parser, "Invalid %s escape sequence.", description);
@@ -930,9 +947,10 @@ static void nextToken(Parser* parser)
   
   while (peekChar(parser) != '\0')
   {
+	  char c;
     parser->tokenStart = parser->currentChar;
 
-    char c = nextChar(parser);
+    c = nextChar(parser);
     switch (c)
     {
       case '(':
@@ -1239,6 +1257,8 @@ static int addLocal(Compiler* compiler, const char* name, int length)
 // If [token] is `NULL`, uses the previously consumed token. Returns its symbol.
 static int declareVariable(Compiler* compiler, Token* token)
 {
+	int i;
+
   if (token == NULL) token = &compiler->parser->previous;
 
   if (token->length > MAX_VARIABLE_NAME)
@@ -1268,7 +1288,7 @@ static int declareVariable(Compiler* compiler, Token* token)
 
   // See if there is already a variable with this name declared in the current
   // scope. (Outer scopes are OK: those get shadowed.)
-  for (int i = compiler->numLocals - 1; i >= 0; i--)
+  for (i = compiler->numLocals - 1; i >= 0; i--)
   {
     Local* local = &compiler->locals[i];
 
@@ -1329,9 +1349,10 @@ static void pushScope(Compiler* compiler)
 // Returns the number of local variables that were eliminated.
 static int discardLocals(Compiler* compiler, int depth)
 {
+	int local;
   ASSERT(compiler->scopeDepth > -1, "Cannot exit top-level scope.");
 
-  int local = compiler->numLocals - 1;
+  local = compiler->numLocals - 1;
   while (local >= 0 && compiler->locals[local].depth >= depth)
   {
     // If the local was closed over, make sure the upvalue gets closed when it
@@ -1369,9 +1390,10 @@ static void popScope(Compiler* compiler)
 // returns its index, otherwise returns -1.
 static int resolveLocal(Compiler* compiler, const char* name, int length)
 {
+	int i;
   // Look it up in the local scopes. Look in reverse order so that the most
   // nested variable is found first and shadows outer ones.
-  for (int i = compiler->numLocals - 1; i >= 0; i--)
+  for (i = compiler->numLocals - 1; i >= 0; i--)
   {
     if (compiler->locals[i].length == length &&
         memcmp(name, compiler->locals[i].name, length) == 0)
@@ -1388,8 +1410,9 @@ static int resolveLocal(Compiler* compiler, const char* name, int length)
 // index of the upvalue.
 static int addUpvalue(Compiler* compiler, bool isLocal, int index)
 {
+	int i;
   // Look for an existing one.
-  for (int i = 0; i < compiler->fn->numUpvalues; i++)
+  for (i = 0; i < compiler->fn->numUpvalues; i++)
   {
     CompilerUpvalue* upvalue = &compiler->upvalues[i];
     if (upvalue->index == index && upvalue->isLocal == isLocal) return i;
@@ -1414,6 +1437,8 @@ static int addUpvalue(Compiler* compiler, bool isLocal, int index)
 // not close over local variables.
 static int findUpvalue(Compiler* compiler, const char* name, int length)
 {
+	int local;
+	int upvalue;
   // If we are at the top level, we didn't find it.
   if (compiler->parent == NULL) return -1;
   
@@ -1422,7 +1447,7 @@ static int findUpvalue(Compiler* compiler, const char* name, int length)
   if (name[0] != '_' && compiler->parent->enclosingClass != NULL) return -1;
   
   // See if it's a local variable in the immediately enclosing function.
-  int local = resolveLocal(compiler->parent, name, length);
+  local = resolveLocal(compiler->parent, name, length);
   if (local != -1)
   {
     // Mark the local as an upvalue so we know to close it when it goes out of
@@ -1438,7 +1463,7 @@ static int findUpvalue(Compiler* compiler, const char* name, int length)
   // intermediate functions to get from the function where a local is declared
   // all the way into the possibly deeply nested function that is closing over
   // it.
-  int upvalue = findUpvalue(compiler->parent, name, length);
+  upvalue = findUpvalue(compiler->parent, name, length);
   if (upvalue != -1)
   {
     return addUpvalue(compiler, false, upvalue);
@@ -1516,6 +1541,7 @@ static ObjFn* endCompiler(Compiler* compiler,
   // In the function that contains this one, load the resulting function object.
   if (compiler->parent != NULL)
   {
+	  int i;
     int constant = addConstant(compiler->parent, OBJ_VAL(compiler->fn));
 
     // Wrap the function in a closure. We do this even if it has no upvalues so
@@ -1527,7 +1553,7 @@ static ObjFn* endCompiler(Compiler* compiler,
 
     // Emit arguments for each upvalue to know whether to capture a local or
     // an upvalue.
-    for (int i = 0; i < compiler->fn->numUpvalues; i++)
+    for (i = 0; i < compiler->fn->numUpvalues; i++)
     {
       emitByte(compiler->parent, compiler->upvalues[i].isLocal ? 1 : 0);
       emitByte(compiler->parent, compiler->upvalues[i].index);
@@ -1703,12 +1729,13 @@ static int methodSymbol(Compiler* compiler, const char* name, int length)
 static void signatureParameterList(char name[MAX_METHOD_SIGNATURE], int* length,
                                    int numParams, char leftBracket, char rightBracket)
 {
+	int i;
   name[(*length)++] = leftBracket;
 
   // This function may be called with too many parameters. When that happens,
   // a compile error has already been reported, but we need to make sure we
   // don't overflow the string too, hence the MAX_PARAMETERS check.
-  for (int i = 0; i < numParams && i < MAX_PARAMETERS; i++)
+  for (i = 0; i < numParams && i < MAX_PARAMETERS; i++)
   {
     if (i > 0) name[(*length)++] = ',';
     name[(*length)++] = '_';
@@ -1866,15 +1893,17 @@ static void methodCall(Compiler* compiler, Code instruction,
   // Parse the block argument, if any.
   if (match(compiler, TOKEN_LEFT_BRACE))
   {
-    // Include the block argument in the arity.
+    Compiler fnCompiler;
+    // Make a dummy signature to track the arity.
+    Signature fnSignature = { "", 0, SIG_METHOD, 0 };
+    char blockName[MAX_METHOD_SIGNATURE + 15];
+    int blockLength;
+
+	// Include the block argument in the arity.
     called.type = SIG_METHOD;
     called.arity++;
 
-    Compiler fnCompiler;
     initCompiler(&fnCompiler, compiler->parser, compiler, false);
-
-    // Make a dummy signature to track the arity.
-    Signature fnSignature = { "", 0, SIG_METHOD, 0 };
 
     // Parse the parameter list, if any.
     if (match(compiler, TOKEN_PIPE))
@@ -1888,8 +1917,6 @@ static void methodCall(Compiler* compiler, Code instruction,
     finishBody(&fnCompiler, false);
 
     // Name the function based on the method its passed to.
-    char blockName[MAX_METHOD_SIGNATURE + 15];
-    int blockLength;
     signatureToString(&called, blockName, &blockLength);
     memmove(blockName + blockLength, " block argument", 16);
 
@@ -2079,6 +2106,8 @@ static ClassInfo* getEnclosingClass(Compiler* compiler)
 
 static void field(Compiler* compiler, bool canAssign)
 {
+	bool isLoad = true;
+
   // Initialize it with a fake value so we can keep parsing and minimize the
   // number of cascaded errors.
   int field = 255;
@@ -2111,7 +2140,6 @@ static void field(Compiler* compiler, bool canAssign)
   }
 
   // If there's an "=" after a field name, it's an assignment.
-  bool isLoad = true;
   if (canAssign && match(compiler, TOKEN_EQ))
   {
     // Compile the right-hand side.
@@ -2166,6 +2194,8 @@ static void bareName(Compiler* compiler, bool canAssign, Variable variable)
 
 static void staticField(Compiler* compiler, bool canAssign)
 {
+	Variable variable;
+	Token* token;
   Compiler* classCompiler = getEnclosingClassCompiler(compiler);
   if (classCompiler == NULL)
   {
@@ -2174,7 +2204,7 @@ static void staticField(Compiler* compiler, bool canAssign)
   }
 
   // Look up the name in the scope chain.
-  Token* token = &compiler->parser->previous;
+  token = &compiler->parser->previous;
 
   // If this is the first time we've seen this static field, implicitly
   // define it as a variable in the scope surrounding the class definition.
@@ -2190,7 +2220,7 @@ static void staticField(Compiler* compiler, bool canAssign)
   // It definitely exists now, so resolve it properly. This is different from
   // the above resolveLocal() call because we may have already closed over it
   // as an upvalue.
-  Variable variable = resolveName(compiler, token->start, token->length);
+  variable = resolveName(compiler, token->start, token->length);
   bareName(compiler, canAssign, variable);
 }
 
@@ -2380,31 +2410,37 @@ static void call(Compiler* compiler, bool canAssign)
 
 static void and_(Compiler* compiler, bool canAssign)
 {
+	int jump;
+
   ignoreNewlines(compiler);
 
   // Skip the right argument if the left is false.
-  int jump = emitJump(compiler, CODE_AND);
+  jump = emitJump(compiler, CODE_AND);
   parsePrecedence(compiler, PREC_LOGICAL_AND);
   patchJump(compiler, jump);
 }
 
 static void or_(Compiler* compiler, bool canAssign)
 {
+	int jump;
+
   ignoreNewlines(compiler);
 
   // Skip the right argument if the left is true.
-  int jump = emitJump(compiler, CODE_OR);
+  jump = emitJump(compiler, CODE_OR);
   parsePrecedence(compiler, PREC_LOGICAL_OR);
   patchJump(compiler, jump);
 }
 
 static void conditional(Compiler* compiler, bool canAssign)
 {
+	int ifJump;
+	int elseJump;
   // Ignore newline after '?'.
   ignoreNewlines(compiler);
 
   // Jump to the else branch if the condition is false.
-  int ifJump = emitJump(compiler, CODE_JUMP_IF);
+  ifJump = emitJump(compiler, CODE_JUMP_IF);
 
   // Compile the then branch.
   parsePrecedence(compiler, PREC_CONDITIONAL);
@@ -2414,7 +2450,7 @@ static void conditional(Compiler* compiler, bool canAssign)
   ignoreNewlines(compiler);
 
   // Jump over the else branch when the if branch is taken.
-  int elseJump = emitJump(compiler, CODE_JUMP);
+  elseJump = emitJump(compiler, CODE_JUMP);
 
   // Compile the else branch.
   patchJump(compiler, ifJump);
@@ -2436,8 +2472,10 @@ void infixOp(Compiler* compiler, bool canAssign)
   parsePrecedence(compiler, (Precedence)(rule->precedence + 1));
 
   // Call the operator method on the left-hand side.
+  {
   Signature signature = { rule->name, (int)strlen(rule->name), SIG_METHOD, 1 };
   callSignature(compiler, CODE_CALL_0, &signature);
+  }
 }
 
 // Compiles a method signature for an infix operator.
@@ -2662,8 +2700,10 @@ static GrammarRule* getRule(TokenType type)
 // The main entrypoint for the top-down operator precedence parser.
 void parsePrecedence(Compiler* compiler, Precedence precedence)
 {
+	bool canAssign;
+	GrammarFn prefix;
   nextToken(compiler->parser);
-  GrammarFn prefix = rules[compiler->parser->previous.type].prefix;
+  prefix = rules[compiler->parser->previous.type].prefix;
 
   if (prefix == NULL)
   {
@@ -2678,13 +2718,14 @@ void parsePrecedence(Compiler* compiler, Precedence precedence)
   // expressions that are valid lvalues -- names, subscripts, fields, etc. --
   // we pass in whether or not it appears in a context loose enough to allow
   // "=". If so, it will parse the "=" itself and handle it appropriately.
-  bool canAssign = precedence <= PREC_CONDITIONAL;
+  canAssign = precedence <= PREC_CONDITIONAL;
   prefix(compiler, canAssign);
 
   while (precedence <= rules[compiler->parser->current.type].precedence)
   {
+	  GrammarFn infix;
     nextToken(compiler->parser);
-    GrammarFn infix = rules[compiler->parser->previous.type].infix;
+    infix = rules[compiler->parser->previous.type].infix;
     infix(compiler, canAssign);
   }
 }
@@ -2830,6 +2871,7 @@ static void loopBody(Compiler* compiler)
 // we know where the end of the loop is.
 static void endLoop(Compiler* compiler)
 {
+	int i;
   // We don't check for overflow here since the forward jump over the loop body
   // will report an error for the same problem.
   int loopOffset = compiler->fn->code.count - compiler->loop->start + 2;
@@ -2839,7 +2881,7 @@ static void endLoop(Compiler* compiler)
 
   // Find any break placeholder instructions (which will be CODE_END in the
   // bytecode) and replace them with real jumps.
-  int i = compiler->loop->body;
+  i = compiler->loop->body;
   while (i < compiler->fn->code.count)
   {
     if (compiler->fn->code.data[i] == CODE_END)
@@ -2861,6 +2903,11 @@ static void endLoop(Compiler* compiler)
 
 static void forStatement(Compiler* compiler)
 {
+	int iterSlot;
+	int seqSlot;
+	  Loop loop;
+	const char* name;
+	int length;
   // A for statement like:
   //
   //     for (i in sequence.expression) {
@@ -2896,8 +2943,8 @@ static void forStatement(Compiler* compiler)
   consume(compiler, TOKEN_NAME, "Expect for loop variable name.");
 
   // Remember the name of the loop variable.
-  const char* name = compiler->parser->previous.start;
-  int length = compiler->parser->previous.length;
+  name = compiler->parser->previous.start;
+  length = compiler->parser->previous.length;
 
   consume(compiler, TOKEN_IN, "Expect 'in' after loop variable.");
   ignoreNewlines(compiler);
@@ -2906,15 +2953,14 @@ static void forStatement(Compiler* compiler)
   // The space in the variable name ensures it won't collide with a user-defined
   // variable.
   expression(compiler);
-  int seqSlot = addLocal(compiler, "seq ", 4);
+  seqSlot = addLocal(compiler, "seq ", 4);
 
   // Create another hidden local for the iterator object.
   null(compiler, false);
-  int iterSlot = addLocal(compiler, "iter ", 5);
+  iterSlot = addLocal(compiler, "iter ", 5);
 
   consume(compiler, TOKEN_RIGHT_PAREN, "Expect ')' after loop expression.");
 
-  Loop loop;
   startLoop(compiler, &loop);
 
   // Advance the iterator by calling the ".iterate" method on the sequence.
@@ -2949,13 +2995,14 @@ static void forStatement(Compiler* compiler)
 
 static void ifStatement(Compiler* compiler)
 {
+	int ifJump;
   // Compile the condition.
   consume(compiler, TOKEN_LEFT_PAREN, "Expect '(' after 'if'.");
   expression(compiler);
   consume(compiler, TOKEN_RIGHT_PAREN, "Expect ')' after if condition.");
   
   // Jump to the else branch if the condition is false.
-  int ifJump = emitJump(compiler, CODE_JUMP_IF);
+  ifJump = emitJump(compiler, CODE_JUMP_IF);
   
   // Compile the then branch.
   statement(compiler);
@@ -3105,6 +3152,7 @@ static void createConstructor(Compiler* compiler, Signature* signature,
 static void defineMethod(Compiler* compiler, Variable classVariable,
                          bool isStatic, int methodSymbol)
 {
+	Code instruction;
   // Load the class. We have to do this for each method because we can't
   // keep the class on top of the stack. If there are static fields, they
   // will be locals above the initial variable slot for the class on the
@@ -3113,7 +3161,7 @@ static void defineMethod(Compiler* compiler, Variable classVariable,
   loadVariable(compiler, classVariable);
 
   // Define the method.
-  Code instruction = isStatic ? CODE_METHOD_STATIC : CODE_METHOD_INSTANCE;
+  instruction = isStatic ? CODE_METHOD_STATIC : CODE_METHOD_INSTANCE;
   emitShortArg(compiler, instruction, methodSymbol);
 }
 
@@ -3124,13 +3172,14 @@ static void defineMethod(Compiler* compiler, Variable classVariable,
 static int declareMethod(Compiler* compiler, Signature* signature,
                          const char* name, int length)
 {
+	int i;
   int symbol = signatureSymbol(compiler, signature);
   
   // See if the class has already declared method with this signature.
   ClassInfo* classInfo = compiler->enclosingClass;
   IntBuffer* methods = classInfo->inStatic
       ? &classInfo->staticMethods : &classInfo->methods;
-  for (int i = 0; i < methods->count; i++)
+  for (i = 0; i < methods->count; i++)
   {
     if (methods->data[i] == symbol)
     {
@@ -3151,12 +3200,18 @@ static int declareMethod(Compiler* compiler, Signature* signature,
 // be parsed.
 static bool method(Compiler* compiler, Variable classVariable)
 {
+	int methodSymbol;
+	Signature signature;
+	SignatureFn signatureFn;
+  Compiler methodCompiler;
+  char fullSignature[MAX_METHOD_SIGNATURE];
+  int length;
   // TODO: What about foreign constructors?
   bool isForeign = match(compiler, TOKEN_FOREIGN);
   bool isStatic = match(compiler, TOKEN_STATIC);
   compiler->enclosingClass->inStatic = isStatic;
     
-  SignatureFn signatureFn = rules[compiler->parser->current.type].method;
+  signatureFn = rules[compiler->parser->current.type].method;
   nextToken(compiler->parser);
   
   if (signatureFn == NULL)
@@ -3166,10 +3221,9 @@ static bool method(Compiler* compiler, Variable classVariable)
   }
   
   // Build the method signature.
-  Signature signature = signatureFromToken(compiler, SIG_GETTER);
+  signature = signatureFromToken(compiler, SIG_GETTER);
   compiler->enclosingClass->signature = &signature;
 
-  Compiler methodCompiler;
   initCompiler(&methodCompiler, compiler->parser, compiler, true);
 
   // Compile the method signature.
@@ -3181,14 +3235,12 @@ static bool method(Compiler* compiler, Variable classVariable)
   }
   
   // Include the full signature in debug messages in stack traces.
-  char fullSignature[MAX_METHOD_SIGNATURE];
-  int length;
   signatureToString(&signature, fullSignature, &length);
 
   // Check for duplicate methods. Doesn't matter that it's already been
   // defined, error will discard bytecode anyway.
   // Check if the method table already contains this symbol
-  int methodSymbol = declareMethod(compiler, &signature, fullSignature, length);
+  methodSymbol = declareMethod(compiler, &signature, fullSignature, length);
   
   if (isForeign)
   {
@@ -3213,9 +3265,10 @@ static bool method(Compiler* compiler, Variable classVariable)
 
   if (signature.type == SIG_INITIALIZER)
   {
+	  int constructorSymbol;
     // Also define a matching constructor method on the metaclass.
     signature.type = SIG_METHOD;
-    int constructorSymbol = signatureSymbol(compiler, &signature);
+    constructorSymbol = signatureSymbol(compiler, &signature);
     
     createConstructor(compiler, &signature, methodSymbol);
     defineMethod(compiler, classVariable, true, constructorSymbol);
@@ -3228,17 +3281,21 @@ static bool method(Compiler* compiler, Variable classVariable)
 // consumed (along with a possibly preceding "foreign" token).
 static void classDefinition(Compiler* compiler, bool isForeign)
 {
+  ClassInfo classInfo;
+  int numFieldsInstruction = -1;
+	ObjString* className;
+	Value classNameString;
   // Create a variable to store the class in.
   Variable classVariable;
   classVariable.scope = compiler->scopeDepth == -1 ? SCOPE_MODULE : SCOPE_LOCAL;
   classVariable.index = declareNamedVariable(compiler);
   
   // Create shared class name value
-  Value classNameString = wrenNewStringLength(compiler->parser->vm,
+  classNameString = wrenNewStringLength(compiler->parser->vm,
       compiler->parser->previous.start, compiler->parser->previous.length);
   
   // Create class name string to track method duplicates
-  ObjString* className = AS_STRING(classNameString);
+  className = AS_STRING(classNameString);
   
   // Make a string constant for the name.
   emitConstant(compiler, classNameString);
@@ -3256,7 +3313,6 @@ static void classDefinition(Compiler* compiler, bool isForeign)
 
   // Store a placeholder for the number of fields argument. We don't know the
   // count until we've compiled all the methods to see which fields are used.
-  int numFieldsInstruction = -1;
   if (isForeign)
   {
     emitOp(compiler, CODE_FOREIGN_CLASS);
@@ -3274,7 +3330,6 @@ static void classDefinition(Compiler* compiler, bool isForeign)
   // have upvalues referencing them.
   pushScope(compiler);
 
-  ClassInfo classInfo;
   classInfo.isForeign = isForeign;
   classInfo.name = className;
 
@@ -3330,9 +3385,10 @@ static void classDefinition(Compiler* compiler, bool isForeign)
 // assign it to the new variable in this one.
 static void import(Compiler* compiler)
 {
+	int moduleConstant;
   ignoreNewlines(compiler);
   consume(compiler, TOKEN_STRING, "Expect a string after 'import'.");
-  int moduleConstant = addConstant(compiler, compiler->parser->previous.value);
+  moduleConstant = addConstant(compiler, compiler->parser->previous.value);
 
   // Load the module.
   emitShortArg(compiler, CODE_IMPORT_MODULE, moduleConstant);
@@ -3346,11 +3402,13 @@ static void import(Compiler* compiler)
   // Compile the comma-separated list of variables to import.
   do
   {
+	  int variableConstant;
+	  int slot;
     ignoreNewlines(compiler);
-    int slot = declareNamedVariable(compiler);
+    slot = declareNamedVariable(compiler);
 
     // Define a string constant for the variable name.
-    int variableConstant = addConstant(compiler,
+    variableConstant = addConstant(compiler,
         wrenNewStringLength(compiler->parser->vm,
                             compiler->parser->previous.start,
                             compiler->parser->previous.length));
@@ -3367,10 +3425,12 @@ static void import(Compiler* compiler)
 // Compiles a "var" variable definition statement.
 static void variableDefinition(Compiler* compiler)
 {
+	int symbol;
+	Token nameToken;
   // Grab its name, but don't declare it yet. A (local) variable shouldn't be
   // in scope in its own initializer.
   consume(compiler, TOKEN_NAME, "Expect variable name.");
-  Token nameToken = compiler->parser->previous;
+  nameToken = compiler->parser->previous;
 
   // Compile the initializer.
   if (match(compiler, TOKEN_EQ))
@@ -3385,7 +3445,7 @@ static void variableDefinition(Compiler* compiler)
   }
 
   // Now put it in scope.
-  int symbol = declareVariable(compiler, &nameToken);
+  symbol = declareVariable(compiler, &nameToken);
   defineVariable(compiler, symbol);
 }
 
@@ -3420,10 +3480,13 @@ void definition(Compiler* compiler)
 ObjFn* wrenCompile(WrenVM* vm, ObjModule* module, const char* source,
                    bool isExpression, bool printErrors)
 {
+	int i;
+  Compiler compiler;
+	int numExistingVariables;
+  Parser parser;
   // Skip the UTF-8 BOM if there is one.
   if (strncmp(source, "\xEF\xBB\xBF", 3) == 0) source += 3;
   
-  Parser parser;
   parser.vm = vm;
   parser.module = module;
   parser.source = source;
@@ -3449,9 +3512,8 @@ ObjFn* wrenCompile(WrenVM* vm, ObjModule* module, const char* source,
   // Read the first token.
   nextToken(&parser);
 
-  int numExistingVariables = module->variables.count;
+  numExistingVariables = module->variables.count;
 
-  Compiler compiler;
   initCompiler(&compiler, &parser, NULL, false);
   ignoreNewlines(&compiler);
 
@@ -3482,7 +3544,7 @@ ObjFn* wrenCompile(WrenVM* vm, ObjModule* module, const char* source,
   // See if there are any implicitly declared module-level variables that never
   // got an explicit definition. They will have values that are numbers
   // indicating the line where the variable was first used.
-  for (int i = numExistingVariables; i < parser.module->variables.count; i++)
+  for (i = numExistingVariables; i < parser.module->variables.count; i++)
   {
     if (IS_NUM(parser.module->variables.data[i]))
     {

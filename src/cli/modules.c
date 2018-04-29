@@ -198,7 +198,8 @@ static ModuleRegistry modules[] =
 // Returns the BuildInModule for it or NULL if not found.
 static ModuleRegistry* findModule(const char* name)
 {
-  for (int i = 0; modules[i].name != NULL; i++)
+	int i;
+  for (i = 0; modules[i].name != NULL; i++)
   {
     if (strcmp(name, modules[i].name) == 0) return &modules[i];
   }
@@ -209,7 +210,8 @@ static ModuleRegistry* findModule(const char* name)
 // Looks for a class with [name] in [module].
 static ClassRegistry* findClass(ModuleRegistry* module, const char* name)
 {
-  for (int i = 0; module->classes[i].name != NULL; i++)
+	int i;
+  for (i = 0; module->classes[i].name != NULL; i++)
   {
     if (strcmp(name, module->classes[i].name) == 0) return &module->classes[i];
   }
@@ -221,7 +223,8 @@ static ClassRegistry* findClass(ModuleRegistry* module, const char* name)
 static WrenForeignMethodFn findMethod(ClassRegistry* clas,
                                       bool isStatic, const char* signature)
 {
-  for (int i = 0; clas->methods[i].signature != NULL; i++)
+	int i;
+  for (i = 0; clas->methods[i].signature != NULL; i++)
   {
     MethodRegistry* method = &clas->methods[i];
     if (isStatic == method->isStatic &&
@@ -236,11 +239,13 @@ static WrenForeignMethodFn findMethod(ClassRegistry* clas,
 
 char* readBuiltInModule(const char* name)
 {
+	char* copy;
+	size_t length;
   ModuleRegistry* module = findModule(name);
   if (module == NULL) return NULL;
 
-  size_t length = strlen(*module->source);
-  char* copy = (char*)malloc(length + 1);
+  length = strlen(*module->source);
+  copy = (char*)malloc(length + 1);
   memcpy(copy, *module->source, length + 1);
   return copy;
 }
@@ -249,11 +254,12 @@ WrenForeignMethodFn bindBuiltInForeignMethod(
     WrenVM* vm, const char* moduleName, const char* className, bool isStatic,
     const char* signature)
 {
+	ClassRegistry* clas;
   // TODO: Assert instead of return NULL?
   ModuleRegistry* module = findModule(moduleName);
   if (module == NULL) return NULL;
 
-  ClassRegistry* clas = findClass(module, className);
+  clas = findClass(module, className);
   if (clas == NULL) return NULL;
 
   return findMethod(clas, isStatic, signature);
@@ -262,12 +268,13 @@ WrenForeignMethodFn bindBuiltInForeignMethod(
 WrenForeignClassMethods bindBuiltInForeignClass(
     WrenVM* vm, const char* moduleName, const char* className)
 {
+	ClassRegistry* clas;
   WrenForeignClassMethods methods = { NULL, NULL };
 
   ModuleRegistry* module = findModule(moduleName);
   if (module == NULL) return methods;
 
-  ClassRegistry* clas = findClass(module, className);
+  clas = findClass(module, className);
   if (clas == NULL) return methods;
 
   methods.allocate = findMethod(clas, true, "<allocate>");

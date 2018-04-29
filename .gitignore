@@ -39,3 +39,10 @@ ipch/
 *.user
 *.userosscache
 *.sln.docstates
+
+/util/vs2010/build
+/util/vs2010/obj
+/util/vs2010/wren/obj
+/util/vs2010/lib/obj
+/util/vs2010/Debug
+/util/vs2010/Release

@@ -4,10 +4,12 @@
 
 void wrenDebugPrintStackTrace(WrenVM* vm)
 {
+	int i;
+	ObjFiber* fiber;
   // Bail if the host doesn't enable printing errors.
   if (vm->config.errorFn == NULL) return;
   
-  ObjFiber* fiber = vm->fiber;
+  fiber = vm->fiber;
   if (IS_STRING(fiber->error))
   {
     vm->config.errorFn(vm, WREN_ERROR_RUNTIME,
@@ -21,8 +23,9 @@ void wrenDebugPrintStackTrace(WrenVM* vm)
                        NULL, -1, "[error object]");
   }
 
-  for (int i = fiber->numFrames - 1; i >= 0; i--)
+  for (i = fiber->numFrames - 1; i >= 0; i--)
   {
+	  int line;
     CallFrame* frame = &fiber->frames[i];
     ObjFn* fn = frame->closure->fn;
 
@@ -35,7 +38,7 @@ void wrenDebugPrintStackTrace(WrenVM* vm)
     if (fn->module->name == NULL) continue;
     
     // -1 because IP has advanced past the instruction that it just executed.
-    int line = fn->debug->sourceLines.data[frame->ip - fn->code.data - 1];
+    line = fn->debug->sourceLines.data[frame->ip - fn->code.data - 1];
     vm->config.errorFn(vm, WREN_ERROR_STACK_TRACE,
                        fn->module->name->value, line,
                        fn->debug->name);
@@ -269,12 +272,14 @@ static int dumpInstruction(WrenVM* vm, ObjFn* fn, int i, int* lastLine)
 
     case CODE_CLOSURE:
     {
+		int j;
+		ObjFn* loadedFn;
       int constant = READ_SHORT();
       printf("%-16s %5d ", "CLOSURE", constant);
       wrenDumpValue(fn->constants.data[constant]);
       printf(" ");
-      ObjFn* loadedFn = AS_FN(fn->constants.data[constant]);
-      for (int j = 0; j < loadedFn->numUpvalues; j++)
+      loadedFn = AS_FN(fn->constants.data[constant]);
+      for (j = 0; j < loadedFn->numUpvalues; j++)
       {
         int isLocal = READ_BYTE();
         int index = READ_BYTE();
@@ -358,12 +363,13 @@ int wrenDumpInstruction(WrenVM* vm, ObjFn* fn, int i)
 
 void wrenDumpCode(WrenVM* vm, ObjFn* fn)
 {
+  int i = 0;
+  int lastLine = -1;
+
   printf("%s: %s\n",
          fn->module->name == NULL ? "<core>" : fn->module->name->value,
          fn->debug->name);
 
-  int i = 0;
-  int lastLine = -1;
   for (;;)
   {
     int offset = dumpInstruction(vm, fn, i, &lastLine);
@@ -376,8 +382,10 @@ void wrenDumpCode(WrenVM* vm, ObjFn* fn)
 
 void wrenDumpStack(ObjFiber* fiber)
 {
+	Value* slot;
+
   printf("(fiber %p) ", fiber);
-  for (Value* slot = fiber->stack; slot < fiber->stackTop; slot++)
+  for (slot = fiber->stack; slot < fiber->stackTop; slot++)
   {
     wrenDumpValue(*slot);
     printf(" | ");

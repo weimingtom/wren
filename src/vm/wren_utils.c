@@ -43,9 +43,10 @@ int wrenSymbolTableEnsure(WrenVM* vm, SymbolTable* symbols,
 int wrenSymbolTableFind(const SymbolTable* symbols,
                         const char* name, size_t length)
 {
+	int i;
   // See if the symbol is already defined.
   // TODO: O(n). Do something better.
-  for (int i = 0; i < symbols->count; i++)
+  for (i = 0; i < symbols->count; i++)
   {
     if (wrenStringEqualsCString(symbols->data[i], name, length)) return i;
   }
@@ -55,7 +56,8 @@ int wrenSymbolTableFind(const SymbolTable* symbols,
 
 void wrenBlackenSymbolTable(WrenVM* vm, SymbolTable* symbolTable)
 {
-  for (int i = 0; i < symbolTable->count; i++)
+	int i;
+  for (i = 0; i < symbolTable->count; i++)
   {
     wrenGrayObj(vm, &symbolTable->data[i]->obj);
   }
@@ -121,11 +123,12 @@ int wrenUtf8Encode(int value, uint8_t* bytes)
 
 int wrenUtf8Decode(const uint8_t* bytes, uint32_t length)
 {
+  int value;
+  uint32_t remainingBytes;
+
   // Single byte (i.e. fits in ASCII).
   if (*bytes <= 0x7f) return *bytes;
 
-  int value;
-  uint32_t remainingBytes;
   if ((*bytes & 0xe0) == 0xc0)
   {
     // Two byte sequence: 110xxxxx 10xxxxxx.

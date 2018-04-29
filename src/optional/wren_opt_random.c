@@ -45,10 +45,11 @@ static void randomAllocate(WrenVM* vm)
 
 static void randomSeed0(WrenVM* vm)
 {
+	int i;
   Well512* well = (Well512*)wrenGetSlotForeign(vm, 0);
 
   srand((uint32_t)time(NULL));
-  for (int i = 0; i < 16; i++)
+  for (i = 0; i < 16; i++)
   {
     well->state[i] = rand();
   }
@@ -56,10 +57,11 @@ static void randomSeed0(WrenVM* vm)
 
 static void randomSeed1(WrenVM* vm)
 {
+	int i;
   Well512* well = (Well512*)wrenGetSlotForeign(vm, 0);
 
   srand((uint32_t)wrenGetSlotDouble(vm, 1));
-  for (int i = 0; i < 16; i++)
+  for (i = 0; i < 16; i++)
   {
     well->state[i] = rand();
   }
@@ -67,9 +69,10 @@ static void randomSeed1(WrenVM* vm)
 
 static void randomSeed16(WrenVM* vm)
 {
+	int i;
   Well512* well = (Well512*)wrenGetSlotForeign(vm, 0);
 
-  for (int i = 0; i < 16; i++)
+  for (i = 0; i < 16; i++)
   {
     well->state[i] = (uint32_t)wrenGetSlotDouble(vm, i + 1);
   }
@@ -111,8 +114,9 @@ WrenForeignClassMethods wrenRandomBindForeignClass(WrenVM* vm,
                                                    const char* module,
                                                    const char* className)
 {
+	WrenForeignClassMethods methods;
+
   ASSERT(strcmp(className, "Random") == 0, "Should be in Random class.");
-  WrenForeignClassMethods methods;
   methods.allocate = randomAllocate;
   methods.finalize = NULL;
   return methods;

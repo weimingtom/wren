@@ -30,27 +30,32 @@ void metaCompile(WrenVM* vm)
 }
 
 void metaGetModuleVariables(WrenVM* vm) {
+  int i;
+  ObjModule* module;
+  ObjList* names;
+  Value moduleValue;
+
   wrenEnsureSlots(vm, 3);
   
-  Value moduleValue = wrenMapGet(vm->modules, vm->apiStack[1]);
+  moduleValue = wrenMapGet(vm->modules, vm->apiStack[1]);
   if (IS_UNDEFINED(moduleValue))
   {
     vm->apiStack[0] = NULL_VAL;
     return;
   }
     
-  ObjModule* module = AS_MODULE(moduleValue);
-  ObjList* names = wrenNewList(vm, module->variableNames.count);
+  module = AS_MODULE(moduleValue);
+  names = wrenNewList(vm, module->variableNames.count);
   vm->apiStack[0] = OBJ_VAL(names);
 
   // Initialize the elements to null in case a collection happens when we
   // allocate the strings below.
-  for (int i = 0; i < names->elements.count; i++)
+  for (i = 0; i < names->elements.count; i++)
   {
     names->elements.data[i] = NULL_VAL;
   }
   
-  for (int i = 0; i < names->elements.count; i++)
+  for (i = 0; i < names->elements.count; i++)
   {
     names->elements.data[i] = OBJ_VAL(module->variableNames.data[i]);
   }

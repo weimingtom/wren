@@ -1,6 +1,18 @@
 #include "wren_primitive.h"
 
 #include <math.h>
+#if _MSC_VER <= 1600
+//https://github.com/appcelerator/appc-memwatch/blob/4a68490d9ad20bf1e9ce0763324c2bc27e5fb33d/src/platformcompat.hh
+#include <float.h> //isinf, isnan
+#include <stdlib.h> //min
+//https://github.com/arvindchari88/newGitTest/blob/5a19f7d01d417a34170a8f760a76e6a8bb7c9274/Anaconda/Lib/site-packages/numba/_math_c99.c
+extern double trunc(double x);
+extern double round(double x);
+extern int isnan(double x);
+extern int isinf(double x);
+extern float fmin(float a, float b);
+extern float fmax(float a, float b);
+#endif
 
 // Validates that [value] is an integer within `[0, count)`. Also allows
 // negative indices which map backwards from the end. Returns the valid positive
@@ -74,6 +86,9 @@ bool validateString(WrenVM* vm, Value arg, const char* argName)
 uint32_t calculateRange(WrenVM* vm, ObjRange* range, uint32_t* length,
                         int* step)
 {
+	uint32_t to;
+	double value;
+	uint32_t from;
   *step = 0;
 
   // Edge case: an empty range is allowed at the end of a sequence. This way,
@@ -85,11 +100,11 @@ uint32_t calculateRange(WrenVM* vm, ObjRange* range, uint32_t* length,
     return 0;
   }
 
-  uint32_t from = validateIndexValue(vm, *length, range->from, "Range start");
+  from = validateIndexValue(vm, *length, range->from, "Range start");
   if (from == UINT32_MAX) return UINT32_MAX;
 
   // Bounds check the end manually to handle exclusive ranges.
-  double value = range->to;
+  value = range->to;
   if (!validateIntValue(vm, value, "Range end")) return UINT32_MAX;
 
   // Negative indices count from the end.
@@ -117,7 +132,7 @@ uint32_t calculateRange(WrenVM* vm, ObjRange* range, uint32_t* length,
     return UINT32_MAX;
   }
 
-  uint32_t to = (uint32_t)value;
+  to = (uint32_t)value;
   *length = abs((int)(from - to)) + 1;
   *step = from < to ? 1 : -1;
   return from;

@@ -90,12 +90,15 @@ void ioShutdown()
 // Returns true if an error was reported.
 static bool handleRequestError(uv_fs_t* request)
 {
+	int error;
+	WrenHandle* fiber;
+	FileRequestData* data;
   if (request->result >= 0) return false;
 
-  FileRequestData* data = (FileRequestData*)request->data;
-  WrenHandle* fiber = (WrenHandle*)data->fiber;
+  data = (FileRequestData*)request->data;
+  fiber = (WrenHandle*)data->fiber;
   
-  int error = (int)request->result;
+  error = (int)request->result;
   free(data);
   uv_fs_req_cleanup(request);
   free(request);
@@ -133,11 +136,12 @@ WrenHandle* freeRequest(uv_fs_t* request)
 
 static void directoryListCallback(uv_fs_t* request)
 {
-  if (handleRequestError(request)) return;
-
+	WrenVM* vm;
   uv_dirent_t entry;
 
-  WrenVM* vm = getVM();
+  if (handleRequestError(request)) return;
+
+  vm = getVM();
   wrenEnsureSlots(vm, 3);
   wrenSetSlotNewList(vm, 2);
   
@@ -170,12 +174,12 @@ void fileAllocate(WrenVM* vm)
 
 void fileFinalize(void* data)
 {
+  uv_fs_t request;
   int fd = *(int*)data;
   
   // Already closed.
   if (fd == -1) return;
   
-  uv_fs_t request;
   uv_fs_close(getLoop(), &request, fd, NULL);
   uv_fs_req_cleanup(&request);
 }
@@ -197,9 +201,10 @@ void fileDelete(WrenVM* vm)
 
 static void fileOpenCallback(uv_fs_t* request)
 {
+	double fd;
   if (handleRequestError(request)) return;
   
-  double fd = (double)request->result;
+  fd = (double)request->result;
   schedulerResume(freeRequest(request), true);
   wrenSetSlotDouble(getVM(), 2, fd);
   schedulerFinishResume();
@@ -237,9 +242,10 @@ void fileOpen(WrenVM* vm)
 // Called by libuv when the stat call for size completes.
 static void fileSizeCallback(uv_fs_t* request)
 {
+	double size;
   if (handleRequestError(request)) return;
 
-  double size = (double)request->statbuf.st_size;
+  size = (double)request->statbuf.st_size;
   schedulerResume(freeRequest(request), true);
   wrenSetSlotDouble(getVM(), 2, size);
   schedulerFinishResume();
@@ -261,6 +267,7 @@ static void fileCloseCallback(uv_fs_t* request)
 
 void fileClose(WrenVM* vm)
 {
+	uv_fs_t* request;
   int* foreign = (int*)wrenGetSlotForeign(vm, 0);
   int fd = *foreign;
 
@@ -274,7 +281,7 @@ void fileClose(WrenVM* vm)
   // Mark it closed immediately.
   *foreign = -1;
 
-  uv_fs_t* request = createRequest(wrenGetSlotHandle(vm, 1));
+  request = createRequest(wrenGetSlotHandle(vm, 1));
   uv_fs_close(getLoop(), request, fd, fileCloseCallback);
   wrenSetSlotBool(vm, 0, false);
 }
@@ -288,11 +295,14 @@ void fileDescriptor(WrenVM* vm)
 
 static void fileReadBytesCallback(uv_fs_t* request)
 {
+	size_t count;
+	uv_buf_t buffer;
+	FileRequestData* data;
   if (handleRequestError(request)) return;
 
-  FileRequestData* data = (FileRequestData*)request->data;
-  uv_buf_t buffer = data->buffer;
-  size_t count = request->result;
+  data = (FileRequestData*)request->data;
+  buffer = data->buffer;
+  count = request->result;
 
   // TODO: Having to copy the bytes here is a drag. It would be good if Wren's
   // embedding API supported a way to *give* it bytes that were previously
@@ -343,9 +353,11 @@ void fileRealPath(WrenVM* vm)
 // Called by libuv when the stat call completes.
 static void statCallback(uv_fs_t* request)
 {
+	uv_stat_t* data;
+	WrenVM* vm;
   if (handleRequestError(request)) return;
   
-  WrenVM* vm = getVM();
+  vm = getVM();
   wrenEnsureSlots(vm, 3);
   
   // Get a handle to the Stat class. We'll hang on to this so we don't have to
@@ -361,7 +373,7 @@ static void statCallback(uv_fs_t* request)
   wrenSetSlotNewForeign(vm, 2, 2, sizeof(uv_stat_t));
   
   // Copy the stat data.
-  uv_stat_t* data = (uv_stat_t*)wrenGetSlotForeign(vm, 2);
+  data = (uv_stat_t*)wrenGetSlotForeign(vm, 2);
   *data = request->statbuf;
   
   schedulerResume(freeRequest(request), true);
@@ -384,9 +396,10 @@ void fileSize(WrenVM* vm)
 
 static void fileWriteBytesCallback(uv_fs_t* request)
 {
+	FileRequestData* data;
   if (handleRequestError(request)) return;
  
-  FileRequestData* data = (FileRequestData*)request->data;
+  data = (FileRequestData*)request->data;
   free(data->buffer.base);
 
   schedulerResume(freeRequest(request), false);

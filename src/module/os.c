@@ -60,10 +60,11 @@ void platformIsPosix(WrenVM* vm)
 
 void processAllArguments(WrenVM* vm)
 {
+	int i;
   wrenEnsureSlots(vm, 2);
   wrenSetSlotNewList(vm, 0);
 
-  for (int i = 0; i < numArgs; i++)
+  for (i = 0; i < numArgs; i++)
   {
     wrenSetSlotString(vm, 1, args[i]);
     wrenInsertInList(vm, 0, -1, 1);

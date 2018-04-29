@@ -1,4 +1,16 @@
 #include <math.h>
+#if _MSC_VER <= 1600
+//https://github.com/appcelerator/appc-memwatch/blob/4a68490d9ad20bf1e9ce0763324c2bc27e5fb33d/src/platformcompat.hh
+#include <float.h> //isinf, isnan
+#include <stdlib.h> //min
+//https://github.com/arvindchari88/newGitTest/blob/5a19f7d01d417a34170a8f760a76e6a8bb7c9274/Anaconda/Lib/site-packages/numba/_math_c99.c
+extern double trunc(double x);
+extern double round(double x);
+extern int isnan(double x);
+extern int isinf(double x);
+extern float fmin(float a, float b);
+extern float fmax(float a, float b);
+#endif
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -60,6 +72,7 @@ ObjClass* wrenNewSingleClass(WrenVM* vm, int numFields, ObjString* name)
 
 void wrenBindSuperclass(WrenVM* vm, ObjClass* subclass, ObjClass* superclass)
 {
+	int i;
   ASSERT(superclass != NULL, "Must have superclass.");
 
   subclass->superclass = superclass;
@@ -76,7 +89,7 @@ void wrenBindSuperclass(WrenVM* vm, ObjClass* subclass, ObjClass* superclass)
   }
 
   // Inherit methods from its superclass.
-  for (int i = 0; i < superclass->methods.count; i++)
+  for (i = 0; i < superclass->methods.count; i++)
   {
     wrenBindMethod(vm, subclass, i, superclass->methods.data[i]);
   }
@@ -85,11 +98,13 @@ void wrenBindSuperclass(WrenVM* vm, ObjClass* subclass, ObjClass* superclass)
 ObjClass* wrenNewClass(WrenVM* vm, ObjClass* superclass, int numFields,
                        ObjString* name)
 {
+	ObjClass* classObj;
+	ObjClass* metaclass;
   // Create the metaclass.
   Value metaclassName = wrenStringFormat(vm, "@ metaclass", OBJ_VAL(name));
   wrenPushRoot(vm, AS_OBJ(metaclassName));
 
-  ObjClass* metaclass = wrenNewSingleClass(vm, 0, AS_STRING(metaclassName));
+  metaclass = wrenNewSingleClass(vm, 0, AS_STRING(metaclassName));
   metaclass->obj.classObj = vm->classClass;
 
   wrenPopRoot(vm);
@@ -101,7 +116,7 @@ ObjClass* wrenNewClass(WrenVM* vm, ObjClass* superclass, int numFields,
   // hierarchy.
   wrenBindSuperclass(vm, metaclass, vm->classClass);
 
-  ObjClass* classObj = wrenNewSingleClass(vm, numFields, name);
+  classObj = wrenNewSingleClass(vm, numFields, name);
 
   // Make sure the class isn't collected while the inherited methods are being
   // bound.
@@ -132,6 +147,7 @@ void wrenBindMethod(WrenVM* vm, ObjClass* classObj, int symbol, Method method)
 
 ObjClosure* wrenNewClosure(WrenVM* vm, ObjFn* fn)
 {
+	int i;
   ObjClosure* closure = ALLOCATE_FLEX(vm, ObjClosure,
                                       ObjUpvalue*, fn->numUpvalues);
   initObj(vm, &closure->obj, OBJ_CLOSURE, vm->fnClass);
@@ -140,24 +156,27 @@ ObjClosure* wrenNewClosure(WrenVM* vm, ObjFn* fn)
 
   // Clear the upvalue array. We need to do this in case a GC is triggered
   // after the closure is created but before the upvalue array is populated.
-  for (int i = 0; i < fn->numUpvalues; i++) closure->upvalues[i] = NULL;
+  for (i = 0; i < fn->numUpvalues; i++) closure->upvalues[i] = NULL;
 
   return closure;
 }
 
 ObjFiber* wrenNewFiber(WrenVM* vm, ObjClosure* closure)
 {
+	int stackCapacity;
+	Value* stack;
+	ObjFiber* fiber;
   // Allocate the arrays before the fiber in case it triggers a GC.
   CallFrame* frames = ALLOCATE_ARRAY(vm, CallFrame, INITIAL_CALL_FRAMES);
   
   // Add one slot for the unused implicit receiver slot that the compiler
   // assumes all functions have.
-  int stackCapacity = closure == NULL
+  stackCapacity = closure == NULL
       ? 1
       : wrenPowerOf2Ceil(closure->fn->maxSlots + 1);
-  Value* stack = ALLOCATE_ARRAY(vm, Value, stackCapacity);
+  stack = ALLOCATE_ARRAY(vm, Value, stackCapacity);
   
-  ObjFiber* fiber = ALLOCATE(vm, ObjFiber);
+  fiber = ALLOCATE(vm, ObjFiber);
   initObj(vm, &fiber->obj, OBJ_FIBER, vm->fiberClass);
 
   fiber->stack = stack;
@@ -188,11 +207,13 @@ ObjFiber* wrenNewFiber(WrenVM* vm, ObjClosure* closure)
 
 void wrenEnsureStack(WrenVM* vm, ObjFiber* fiber, int needed)
 {
+	Value* oldStack;
+	int capacity;
   if (fiber->stackCapacity >= needed) return;
   
-  int capacity = wrenPowerOf2Ceil(needed);
+  capacity = wrenPowerOf2Ceil(needed);
   
-  Value* oldStack = fiber->stack;
+  oldStack = fiber->stack;
   fiber->stack = (Value*)wrenReallocate(vm, fiber->stack,
                                         sizeof(Value) * fiber->stackCapacity,
                                         sizeof(Value) * capacity);
@@ -205,6 +226,8 @@ void wrenEnsureStack(WrenVM* vm, ObjFiber* fiber, int needed)
   // single array, hence the slightly redundant-looking arithmetic below.
   if (fiber->stack != oldStack)
   {
+	  ObjUpvalue* upvalue;
+	  int i;
     // Top of the stack.
     if (vm->apiStack >= oldStack && vm->apiStack <= fiber->stackTop)
     {
@@ -212,14 +235,14 @@ void wrenEnsureStack(WrenVM* vm, ObjFiber* fiber, int needed)
     }
     
     // Stack pointer for each call frame.
-    for (int i = 0; i < fiber->numFrames; i++)
+    for (i = 0; i < fiber->numFrames; i++)
     {
       CallFrame* frame = &fiber->frames[i];
       frame->stackStart = fiber->stack + (frame->stackStart - oldStack);
     }
     
     // Open upvalues.
-    for (ObjUpvalue* upvalue = fiber->openUpvalues;
+    for (upvalue = fiber->openUpvalues;
          upvalue != NULL;
          upvalue = upvalue->next)
     {
@@ -242,11 +265,12 @@ ObjForeign* wrenNewForeign(WrenVM* vm, ObjClass* classObj, size_t size)
 
 ObjFn* wrenNewFunction(WrenVM* vm, ObjModule* module, int maxSlots)
 {
+	ObjFn* fn;
   FnDebug* debug = ALLOCATE(vm, FnDebug);
   debug->name = NULL;
   wrenIntBufferInit(&debug->sourceLines);
 
-  ObjFn* fn = ALLOCATE(vm, ObjFn);
+  fn = ALLOCATE(vm, ObjFn);
   initObj(vm, &fn->obj, OBJ_FN, vm->fnClass);
   
   wrenValueBufferInit(&fn->constants);
@@ -269,12 +293,13 @@ void wrenFunctionBindName(WrenVM* vm, ObjFn* fn, const char* name, int length)
 
 Value wrenNewInstance(WrenVM* vm, ObjClass* classObj)
 {
+	int i;
   ObjInstance* instance = ALLOCATE_FLEX(vm, ObjInstance,
                                         Value, classObj->numFields);
   initObj(vm, &instance->obj, OBJ_INSTANCE, classObj);
 
   // Initialize fields to null.
-  for (int i = 0; i < classObj->numFields; i++)
+  for (i = 0; i < classObj->numFields; i++)
   {
     instance->fields[i] = NULL_VAL;
   }
@@ -284,6 +309,7 @@ Value wrenNewInstance(WrenVM* vm, ObjClass* classObj)
 
 ObjList* wrenNewList(WrenVM* vm, uint32_t numElements)
 {
+	ObjList* list;
   // Allocate this before the list object in case it triggers a GC which would
   // free the list.
   Value* elements = NULL;
@@ -292,7 +318,7 @@ ObjList* wrenNewList(WrenVM* vm, uint32_t numElements)
     elements = ALLOCATE_ARRAY(vm, Value, numElements);
   }
 
-  ObjList* list = ALLOCATE(vm, ObjList);
+  list = ALLOCATE(vm, ObjList);
   initObj(vm, &list->obj, OBJ_LIST, vm->listClass);
   list->elements.capacity = numElements;
   list->elements.count = numElements;
@@ -302,6 +328,7 @@ ObjList* wrenNewList(WrenVM* vm, uint32_t numElements)
 
 void wrenListInsert(WrenVM* vm, ObjList* list, Value value, uint32_t index)
 {
+	uint32_t i;
   if (IS_OBJ(value)) wrenPushRoot(vm, AS_OBJ(value));
 
   // Add a slot at the end of the list.
@@ -310,7 +337,7 @@ void wrenListInsert(WrenVM* vm, ObjList* list, Value value, uint32_t index)
   if (IS_OBJ(value)) wrenPopRoot(vm);
 
   // Shift the existing elements down.
-  for (uint32_t i = list->elements.count - 1; i > index; i--)
+  for (i = list->elements.count - 1; i > index; i--)
   {
     list->elements.data[i] = list->elements.data[i - 1];
   }
@@ -321,12 +348,13 @@ void wrenListInsert(WrenVM* vm, ObjList* list, Value value, uint32_t index)
 
 Value wrenListRemoveAt(WrenVM* vm, ObjList* list, uint32_t index)
 {
+	int i;
   Value removed = list->elements.data[index];
 
   if (IS_OBJ(removed)) wrenPushRoot(vm, AS_OBJ(removed));
 
   // Shift items up.
-  for (int i = index; i < list->elements.count - 1; i++)
+  for (i = index; i < list->elements.count - 1; i++)
   {
     list->elements.data[i] = list->elements.data[i + 1];
   }
@@ -426,10 +454,10 @@ static uint32_t hashValue(Value value)
   // TODO: We'll probably want to randomize this at some point.
 
 #if WREN_NAN_TAGGING
+  DoubleBits bits;
   if (IS_OBJ(value)) return hashObject(AS_OBJ(value));
 
   // Hash the raw bits of the unboxed value.
-  DoubleBits bits;
   bits.bits64 = value;
   return hashBits(bits);
 #else
@@ -455,17 +483,19 @@ static uint32_t hashValue(Value value)
 static bool findEntry(MapEntry* entries, uint32_t capacity, Value key,
                       MapEntry** result)
 {
+	MapEntry* tombstone;
+	uint32_t startIndex, index;
   // If there is no entry array (an empty map), we definitely won't find it.
   if (capacity == 0) return false;
   
   // Figure out where to insert it in the table. Use open addressing and
   // basic linear probing.
-  uint32_t startIndex = hashValue(key) % capacity;
-  uint32_t index = startIndex;
+  startIndex = hashValue(key) % capacity;
+  index = startIndex;
   
   // If we pass a tombstone and don't end up finding the key, its entry will
   // be re-used for the insert.
-  MapEntry* tombstone = NULL;
+  tombstone = NULL;
   
   // Walk the probe sequence until we've tried every slot.
   do
@@ -538,9 +568,10 @@ static bool insertEntry(MapEntry* entries, uint32_t capacity,
 // Updates [map]'s entry array to [capacity].
 static void resizeMap(WrenVM* vm, ObjMap* map, uint32_t capacity)
 {
+	uint32_t i;
   // Create the new empty hash table.
   MapEntry* entries = ALLOCATE_ARRAY(vm, MapEntry, capacity);
-  for (uint32_t i = 0; i < capacity; i++)
+  for (i = 0; i < capacity; i++)
   {
     entries[i].key = UNDEFINED_VAL;
     entries[i].value = FALSE_VAL;
@@ -549,7 +580,8 @@ static void resizeMap(WrenVM* vm, ObjMap* map, uint32_t capacity)
   // Re-add the existing entries.
   if (map->capacity > 0)
   {
-    for (uint32_t i = 0; i < map->capacity; i++)
+	  uint32_t i;
+    for (i = 0; i < map->capacity; i++)
     {
       MapEntry* entry = &map->entries[i];
       
@@ -603,13 +635,14 @@ void wrenMapClear(WrenVM* vm, ObjMap* map)
 
 Value wrenMapRemoveKey(WrenVM* vm, ObjMap* map, Value key)
 {
+	Value value;
   MapEntry* entry;
   if (!findEntry(map->entries, map->capacity, key, &entry)) return NULL_VAL;
 
   // Remove the entry from the map. Set this value to true, which marks it as a
   // deleted slot. When searching for a key, we will stop on empty slots, but
   // continue past deleted slots.
-  Value value = entry->value;
+  value = entry->value;
   entry->key = UNDEFINED_VAL;
   entry->value = TRUE_VAL;
 
@@ -684,13 +717,14 @@ static ObjString* allocateString(WrenVM* vm, size_t length)
 // Calculates and stores the hash code for [string].
 static void hashString(ObjString* string)
 {
+	uint32_t i;
   // FNV-1a hash. See: http://www.isthe.com/chongo/tech/comp/fnv/
   uint32_t hash = 2166136261u;
 
   // This is O(n) on the length of the string, but we only call this when a new
   // string is created. Since the creation is also O(n) (to copy/initialize all
   // the bytes), we allow this here.
-  for (uint32_t i = 0; i < string->length; i++)
+  for (i = 0; i < string->length; i++)
   {
     hash ^= string->value[i];
     hash *= 16777619;
@@ -706,11 +740,12 @@ Value wrenNewString(WrenVM* vm, const char* text)
 
 Value wrenNewStringLength(WrenVM* vm, const char* text, size_t length)
 {
+	ObjString* string;
   // Allow NULL if the string is empty since byte buffers don't allocate any
   // characters for a zero-length string.
   ASSERT(length == 0 || text != NULL, "Unexpected NULL string.");
   
-  ObjString* string = allocateString(vm, length);
+  string = allocateString(vm, length);
   
   // Copy the string (if given one).
   if (length > 0 && text != NULL) memcpy(string->value, text, length);
@@ -723,18 +758,21 @@ Value wrenNewStringLength(WrenVM* vm, const char* text, size_t length)
 Value wrenNewStringFromRange(WrenVM* vm, ObjString* source, int start,
                              uint32_t count, int step)
 {
+	uint8_t* to;
+	ObjString* result;
+	uint32_t i;
   uint8_t* from = (uint8_t*)source->value;
   int length = 0;
-  for (uint32_t i = 0; i < count; i++)
+  for (i = 0; i < count; i++)
   {
     length += wrenUtf8DecodeNumBytes(from[start + i * step]);
   }
 
-  ObjString* result = allocateString(vm, length);
+  result = allocateString(vm, length);
   result->value[length] = '\0';
 
-  uint8_t* to = (uint8_t*)result->value;
-  for (uint32_t i = 0; i < count; i++)
+  to = (uint8_t*)result->value;
+  for (i = 0; i < count; i++)
   {
     int index = start + i * step;
     int codePoint = wrenUtf8Decode(from + index, source->length - index);
@@ -751,6 +789,9 @@ Value wrenNewStringFromRange(WrenVM* vm, ObjString* source, int start,
 
 Value wrenNumToString(WrenVM* vm, double value)
 {
+	int length;
+	  char buffer[24];
+
   // Edge case: If the value is NaN or infinity, different versions of libc
   // produce different outputs (some will format it signed and some won't). To
   // get reliable output, handle it ourselves.
@@ -783,17 +824,17 @@ Value wrenNumToString(WrenVM* vm, double value)
   // + 4 chars for exponent
   // + 1 char for "\0"
   // = 24
-  char buffer[24];
-  int length = sprintf(buffer, "%.14g", value);
+  length = sprintf(buffer, "%.14g", value);
   return wrenNewStringLength(vm, buffer, length);
 }
 
 Value wrenStringFromCodePoint(WrenVM* vm, int value)
 {
+	ObjString* string;
   int length = wrenUtf8EncodeNumBytes(value);
   ASSERT(length != 0, "Value out of range.");
 
-  ObjString* string = allocateString(vm, length);
+  string = allocateString(vm, length);
 
   wrenUtf8Encode(value, (uint8_t*)string->value);
   hashString(string);
@@ -803,13 +844,16 @@ Value wrenStringFromCodePoint(WrenVM* vm, int value)
 
 Value wrenStringFormat(WrenVM* vm, const char* format, ...)
 {
+	char* start;
+	ObjString* result;
+	const char* c;
+  size_t totalLength = 0;
   va_list argList;
 
   // Calculate the length of the result string. Do this up front so we can
   // create the final string with a single allocation.
   va_start(argList, format);
-  size_t totalLength = 0;
-  for (const char* c = format; *c != '\0'; c++)
+  for (c = format; *c != '\0'; c++)
   {
     switch (*c)
     {
@@ -829,11 +873,11 @@ Value wrenStringFormat(WrenVM* vm, const char* format, ...)
   va_end(argList);
 
   // Concatenate the string.
-  ObjString* result = allocateString(vm, totalLength);
+  result = allocateString(vm, totalLength);
 
   va_start(argList, format);
-  char* start = result->value;
-  for (const char* c = format; *c != '\0'; c++)
+  start = result->value;
+  for (c = format; *c != '\0'; c++)
   {
     switch (*c)
     {
@@ -868,9 +912,10 @@ Value wrenStringFormat(WrenVM* vm, const char* format, ...)
 
 Value wrenStringCodePointAt(WrenVM* vm, ObjString* string, uint32_t index)
 {
+	int codePoint;
   ASSERT(index < string->length, "Index out of bounds.");
 
-  int codePoint = wrenUtf8Decode((uint8_t*)string->value + index,
+  codePoint = wrenUtf8Decode((uint8_t*)string->value + index,
                                  string->length - index);
   if (codePoint == -1)
   {
@@ -887,6 +932,11 @@ Value wrenStringCodePointAt(WrenVM* vm, ObjString* string, uint32_t index)
 // Uses the Boyer-Moore-Horspool string matching algorithm.
 uint32_t wrenStringFind(ObjString* haystack, ObjString* needle, uint32_t start)
 {
+	uint32_t range;
+	char lastChar;
+	uint32_t index;
+	uint32_t needleEnd;
+  uint32_t shift[UINT8_MAX];
   // Edge case: An empty needle is always found.
   if (needle->length == 0) return start;
 
@@ -900,13 +950,12 @@ uint32_t wrenStringFind(ObjString* haystack, ObjString* needle, uint32_t start)
   // determine how far the search window can be advanced if that character is
   // the last character in the haystack where we are searching for the needle
   // and the needle doesn't match there.
-  uint32_t shift[UINT8_MAX];
-  uint32_t needleEnd = needle->length - 1;
+  needleEnd = needle->length - 1;
 
   // By default, we assume the character is not the needle at all. In that case
   // case, if a match fails on that character, we can advance one whole needle
   // width since.
-  for (uint32_t index = 0; index < UINT8_MAX; index++)
+  for (index = 0; index < UINT8_MAX; index++)
   {
     shift[index] = needle->length;
   }
@@ -915,7 +964,7 @@ uint32_t wrenStringFind(ObjString* haystack, ObjString* needle, uint32_t start)
   // end. If a match fails on that character, we can advance the window such
   // that it the last character in it lines up with the last place we could
   // find it in the needle.
-  for (uint32_t index = 0; index < needleEnd; index++)
+  for (index = 0; index < needleEnd; index++)
   {
     char c = needle->value[index];
     shift[(uint8_t)c] = needleEnd - index;
@@ -923,10 +972,10 @@ uint32_t wrenStringFind(ObjString* haystack, ObjString* needle, uint32_t start)
 
   // Slide the needle across the haystack, looking for the first match or
   // stopping if the needle goes off the end.
-  char lastChar = needle->value[needleEnd];
-  uint32_t range = haystack->length - needle->length;
+  lastChar = needle->value[needleEnd];
+  range = haystack->length - needle->length;
 
-  for (uint32_t index = start; index <= range; )
+  for (index = start; index <= range; )
   {
     // Compare the last character in the haystack's window to the last character
     // in the needle. If it matches, see if the whole needle matches.
@@ -989,7 +1038,8 @@ void wrenGrayValue(WrenVM* vm, Value value)
 
 void wrenGrayBuffer(WrenVM* vm, ValueBuffer* buffer)
 {
-  for (int i = 0; i < buffer->count; i++)
+	int i;
+  for (i = 0; i < buffer->count; i++)
   {
     wrenGrayValue(vm, buffer->data[i]);
   }
@@ -997,6 +1047,7 @@ void wrenGrayBuffer(WrenVM* vm, ValueBuffer* buffer)
 
 static void blackenClass(WrenVM* vm, ObjClass* classObj)
 {
+	int i;
   // The metaclass.
   wrenGrayObj(vm, (Obj*)classObj->obj.classObj);
 
@@ -1004,7 +1055,7 @@ static void blackenClass(WrenVM* vm, ObjClass* classObj)
   wrenGrayObj(vm, (Obj*)classObj->superclass);
 
   // Method function objects.
-  for (int i = 0; i < classObj->methods.count; i++)
+  for (i = 0; i < classObj->methods.count; i++)
   {
     if (classObj->methods.data[i].type == METHOD_BLOCK)
     {
@@ -1021,11 +1072,12 @@ static void blackenClass(WrenVM* vm, ObjClass* classObj)
 
 static void blackenClosure(WrenVM* vm, ObjClosure* closure)
 {
+	int i;
   // Mark the function.
   wrenGrayObj(vm, (Obj*)closure->fn);
 
   // Mark the upvalues.
-  for (int i = 0; i < closure->fn->numUpvalues; i++)
+  for (i = 0; i < closure->fn->numUpvalues; i++)
   {
     wrenGrayObj(vm, (Obj*)closure->upvalues[i]);
   }
@@ -1037,20 +1089,23 @@ static void blackenClosure(WrenVM* vm, ObjClosure* closure)
 
 static void blackenFiber(WrenVM* vm, ObjFiber* fiber)
 {
+	ObjUpvalue* upvalue;
+	Value* slot;
+	int i;
   // Stack functions.
-  for (int i = 0; i < fiber->numFrames; i++)
+  for (i = 0; i < fiber->numFrames; i++)
   {
     wrenGrayObj(vm, (Obj*)fiber->frames[i].closure);
   }
 
   // Stack variables.
-  for (Value* slot = fiber->stack; slot < fiber->stackTop; slot++)
+  for (slot = fiber->stack; slot < fiber->stackTop; slot++)
   {
     wrenGrayValue(vm, *slot);
   }
 
   // Open upvalues.
-  ObjUpvalue* upvalue = fiber->openUpvalues;
+  upvalue = fiber->openUpvalues;
   while (upvalue != NULL)
   {
     wrenGrayObj(vm, (Obj*)upvalue);
@@ -1093,10 +1148,11 @@ static void blackenForeign(WrenVM* vm, ObjForeign* foreign)
 
 static void blackenInstance(WrenVM* vm, ObjInstance* instance)
 {
+	int i;
   wrenGrayObj(vm, (Obj*)instance->obj.classObj);
 
   // Mark the fields.
-  for (int i = 0; i < instance->obj.classObj->numFields; i++)
+  for (i = 0; i < instance->obj.classObj->numFields; i++)
   {
     wrenGrayValue(vm, instance->fields[i]);
   }
@@ -1118,8 +1174,9 @@ static void blackenList(WrenVM* vm, ObjList* list)
 
 static void blackenMap(WrenVM* vm, ObjMap* map)
 {
+	uint32_t i;
   // Mark the entries.
-  for (uint32_t i = 0; i < map->capacity; i++)
+  for (i = 0; i < map->capacity; i++)
   {
     MapEntry* entry = &map->entries[i];
     if (IS_UNDEFINED(entry->key)) continue;
@@ -1135,8 +1192,9 @@ static void blackenMap(WrenVM* vm, ObjMap* map)
 
 static void blackenModule(WrenVM* vm, ObjModule* module)
 {
+	int i;
   // Top-level variables.
-  for (int i = 0; i < module->variables.count; i++)
+  for (i = 0; i < module->variables.count; i++)
   {
     wrenGrayValue(vm, module->variables.data[i]);
   }
@@ -1274,14 +1332,16 @@ ObjClass* wrenGetClass(WrenVM* vm, Value value)
 
 bool wrenValuesEqual(Value a, Value b)
 {
+	Obj* aObj;
+	Obj* bObj;
   if (wrenValuesSame(a, b)) return true;
 
   // If we get here, it's only possible for two heap-allocated immutable objects
   // to be equal.
   if (!IS_OBJ(a) || !IS_OBJ(b)) return false;
 
-  Obj* aObj = AS_OBJ(a);
-  Obj* bObj = AS_OBJ(b);
+  aObj = AS_OBJ(a);
+  bObj = AS_OBJ(b);
 
   // Must be the same type.
   if (aObj->type != bObj->type) return false;

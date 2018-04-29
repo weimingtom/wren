@@ -44,6 +44,7 @@ typedef struct sObjString ObjString;
     void wren##name##BufferFill(WrenVM* vm, name##Buffer* buffer, type data, \
                                 int count) \
     { \
+	  int i; \
       if (buffer->capacity < buffer->count + count) \
       { \
         int capacity = wrenPowerOf2Ceil(buffer->count + count); \
@@ -52,7 +53,7 @@ typedef struct sObjString ObjString;
         buffer->capacity = capacity; \
       } \
       \
-      for (int i = 0; i < count; i++) \
+      for (i = 0; i < count; i++) \
       { \
         buffer->data[buffer->count++] = data; \
       } \

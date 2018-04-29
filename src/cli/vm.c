@@ -27,16 +27,19 @@ int defaultExitCode = 0;
 // could not be read.
 static char* readFile(const char* path)
 {
+	size_t bytesRead;
+	char* buffer;
+	size_t fileSize;
   FILE* file = fopen(path, "rb");
   if (file == NULL) return NULL;
   
   // Find out how big the file is.
   fseek(file, 0L, SEEK_END);
-  size_t fileSize = ftell(file);
+  fileSize = ftell(file);
   rewind(file);
   
   // Allocate a buffer for it.
-  char* buffer = (char*)malloc(fileSize + 1);
+  buffer = (char*)malloc(fileSize + 1);
   if (buffer == NULL)
   {
     fprintf(stderr, "Could not read file \"%s\".\n", path);
@@ -44,7 +47,7 @@ static char* readFile(const char* path)
   }
   
   // Read the entire file.
-  size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
+  bytesRead = fread(buffer, sizeof(char), fileSize, file);
   if (bytesRead < fileSize)
   {
     fprintf(stderr, "Could not read file \"%s\".\n", path);
@@ -86,26 +89,32 @@ static char* wrenFilePath(const char* name)
 // module was found but could not be read.
 static char* readModule(WrenVM* vm, const char* module)
 {
+	char* moduleDirPath;
+	char* moduleDir;
+	size_t moduleLength;
+	size_t moduleDirLength;
+	char* modulePath;
+	char* moduleContents;
   char* source = readBuiltInModule(module);
   if (source != NULL) return source;
   
   // First try to load the module with a ".wren" extension.
-  char* modulePath = wrenFilePath(module);
-  char* moduleContents = readFile(modulePath);
+  modulePath = wrenFilePath(module);
+  moduleContents = readFile(modulePath);
   free(modulePath);
   
   if (moduleContents != NULL) return moduleContents;
   
   // If no contents could be loaded treat the module name as specifying a
   // directory and try to load the "module.wren" file in the directory.
-  size_t moduleLength = strlen(module);
-  size_t moduleDirLength = moduleLength + 7;
-  char* moduleDir = (char*)malloc(moduleDirLength + 1);
+  moduleLength = strlen(module);
+  moduleDirLength = moduleLength + 7;
+  moduleDir = (char*)malloc(moduleDirLength + 1);
   memcpy(moduleDir, module, moduleLength);
   memcpy(moduleDir + moduleLength, "/module", 7);
   moduleDir[moduleDirLength] = '\0';
   
-  char* moduleDirPath = wrenFilePath(moduleDir);
+  moduleDirPath = wrenFilePath(moduleDir);
   free(moduleDir);
   
   moduleContents = readFile(moduleDirPath);
@@ -207,6 +216,8 @@ static void freeVM()
 
 void runFile(const char* path)
 {
+	WrenInterpretResult result;
+	char* source;
   // Use the directory where the file is as the root to resolve imports
   // relative to.
   char* root = NULL;
@@ -219,7 +230,7 @@ void runFile(const char* path)
     rootDirectory = root;
   }
 
-  char* source = readFile(path);
+  source = readFile(path);
   if (source == NULL)
   {
     fprintf(stderr, "Could not find file \"%s\".\n", path);
@@ -228,7 +239,7 @@ void runFile(const char* path)
 
   initVM();
 
-  WrenInterpretResult result = wrenInterpret(vm, source);
+  result = wrenInterpret(vm, source);
 
   if (afterLoadFn != NULL) afterLoadFn(vm);
   
